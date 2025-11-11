@@ -1,0 +1,43 @@
+from pathlib import Path
+from typing import List, Optional
+from .parsers.base import BaseParser
+from .parsers.pdf_parser import PDFParser
+from .document import Document
+
+class DocumentManager:
+    """Manages document parsing with multiple parsers."""
+    
+    def __init__(self):
+        self.parsers: List[BaseParser] = [
+            PDFParser(),
+        ]
+    
+    def get_parser(self, file_path: Path) -> Optional[BaseParser]:
+        """Find appropriate parser for file."""
+        for parser in self.parsers:
+            if parser.can_parse(file_path):
+                return parser
+        return None
+    
+    def parse_document(self, file_path: Path) -> Document:
+        """Parse a single document."""
+        parser = self.get_parser(file_path)
+        if parser is None:
+            raise ValueError(f"No parser available for {file_path.suffix}")
+        
+        return parser.parse(file_path)
+    
+    def parse_directory(self, directory: Path) -> List[Document]:
+        """Parse all supported documents in a directory."""
+        documents = []
+        
+        for file_path in directory.rglob('*'):
+            if file_path.is_file() and self.get_parser(file_path):
+                try:
+                    doc = self.parse_document(file_path)
+                    documents.append(doc)
+                    print(f"✓ Parsed: {file_path.name}")
+                except Exception as e:
+                    print(f"✗ Failed to parse {file_path.name}: {e}")
+        
+        return documents
