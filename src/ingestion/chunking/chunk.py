@@ -18,7 +18,7 @@ class Chunk:
     end_char: int = 0
     
     # Metadata
-    chunk_index: int = 0  # Which chunk number in the document
+    chunk_index: int = 0
     total_chunks: Optional[int] = None
     
     # Embedding (will be populated later)
