@@ -1,10 +1,14 @@
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Optional
 from ..document import Document
 from .chunk import Chunk
 
+
 class BaseChunker(ABC):
     """Abstract base class for text chunking strategies."""
+    
+    # Class-level identifier for the chunking method
+    METHOD_NAME: str = "base"
     
     def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50):
         """
@@ -42,7 +46,8 @@ class BaseChunker(ABC):
         end_char: int = 0,
         section_id: str = None,
         page_number: int = None,
-        total_chunks: int = None
+        total_chunks: int = None,
+        **kwargs  # For additional metadata from semantic chunkers
     ) -> Chunk:
         """Helper to create a Chunk object with all metadata."""
         return Chunk(
@@ -55,5 +60,22 @@ class BaseChunker(ABC):
             start_char=start_char,
             end_char=end_char,
             chunk_index=chunk_index,
-            total_chunks=total_chunks
+            total_chunks=total_chunks,
+            chunking_method=self.METHOD_NAME,
+            **kwargs
         )
+    
+    def _get_page_number(self, char_position: int, document: Document) -> Optional[int]:
+        """Determine which page a character position belongs to."""
+        for section in document.sections:
+            if section.start_char <= char_position < section.end_char:
+                return section.page_number
+        return None
+    
+    def _finalize_chunks(self, chunks: List[Chunk]) -> List[Chunk]:
+        """Apply final processing to all chunks (set total_chunks, etc.)."""
+        total = len(chunks)
+        for i, chunk in enumerate(chunks):
+            chunk.total_chunks = total
+            chunk.chunk_index = i
+        return chunks
