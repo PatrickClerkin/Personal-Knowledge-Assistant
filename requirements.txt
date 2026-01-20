@@ -72,3 +72,6 @@ tzdata==2025.2
 urllib3==2.5.0
 wcwidth==0.2.14
 faiss-cpu==1.9.0
+hdbscan>=0.8.33
+umap-learn>=0.5.3
+bertopic>=0.16.0
