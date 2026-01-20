@@ -1,0 +1,19 @@
+embedding:
+  model_name: all-MiniLM-L6-v2
+  batch_size: 32
+  show_progress: true
+
+chunking:
+  strategy: sentence
+  chunk_size: 512
+  chunk_overlap: 50
+  similarity_threshold: 0.5
+
+storage:
+  backend: faiss
+  index_path: data/index
+  auto_save: true
+
+data_dir: data
+corpus_dir: data/test_corpus
+processed_dir: data/processed

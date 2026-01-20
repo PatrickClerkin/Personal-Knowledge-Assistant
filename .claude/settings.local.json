@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./venv/Scripts/python -m pytest examples/basic_usage.py)",
+      "Bash(./venv/Scripts/python -c \"\nimport sys\nsys.path.insert\\(0, ''.''\\)\nexec\\(open\\(''examples/basic_usage.py''\\).read\\(\\)\\)\n\")",
+      "Bash(./venv/Scripts/python -c \"\nimport sys\nsys.path.insert\\(0, ''.''\\)\nexec\\(open\\(''examples/advanced_usage.py''\\).read\\(\\)\\)\n\")"
+    ]
+  }
+}
