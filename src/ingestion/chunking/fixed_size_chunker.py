@@ -11,7 +11,7 @@ class FixedSizeChunker(BaseChunker):
     Cons: Cuts mid-sentence, no semantic awareness
     Use case: Baseline comparison, very fragmented text
     """
-    
+    # Class-level identifier for the chunking method
     def chunk_document(self, document: Document) -> List[Chunk]:
         """Split document into fixed-size chunks with overlap."""
         chunks = []
