@@ -2,6 +2,8 @@ from pathlib import Path
 from typing import List, Optional
 from .parsers.base import BaseParser
 from .parsers.pdf_parser import PDFParser
+from .parsers.text_parser import TextParser
+from .parsers.docx_parser import DOCXParser
 from .document import Document
 from ..utils.logger import get_logger
 
@@ -14,6 +16,8 @@ class DocumentManager:
     def __init__(self):
         self.parsers: List[BaseParser] = [
             PDFParser(),
+            TextParser(),
+            DOCXParser(),
         ]
     
     def get_parser(self, file_path: Path) -> Optional[BaseParser]:
@@ -22,6 +26,14 @@ class DocumentManager:
             if parser.can_parse(file_path):
                 return parser
         return None
+    
+    @property
+    def supported_extensions(self) -> List[str]:
+        """Return all file extensions this manager can handle."""
+        extensions = []
+        for parser in self.parsers:
+            extensions.extend(parser.supported_extensions)
+        return extensions
     
     def parse_document(self, file_path: Path) -> Document:
         """Parse a single document."""
