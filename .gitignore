@@ -6,6 +6,8 @@ data/raw/*
 data/processed/* 
 *.pdf 
 *.docx 
+!tests/fixtures/*.pdf
+!tests/fixtures/*.docx
 .vscode/ 
 .idea/ 
 .ipynb_checkpoints/ 
