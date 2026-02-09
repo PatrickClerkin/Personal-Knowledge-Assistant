@@ -1,0 +1,83 @@
+[project]
+name = "personal-knowledge-assistant"
+version = "1.0.0"
+description = "Document ingestion and semantic search pipeline with RAG-powered Q&A"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Patrick"},
+]
+keywords = [
+    "semantic-search", "RAG", "NLP", "FAISS",
+    "document-processing", "embeddings",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Indexing",
+]
+
+dependencies = [
+    "PyMuPDF>=1.23.0",
+    "python-docx>=1.0.0",
+    "sentence-transformers>=2.2.0",
+    "faiss-cpu>=1.7.0",
+    "numpy>=1.24.0",
+    "nltk>=3.8.0",
+    "PyYAML>=6.0",
+    "click>=8.0",
+    "flask>=3.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "black>=23.0",
+    "flake8>=6.0",
+]
+semantic = [
+    "hdbscan>=0.8.33",
+    "umap-learn>=0.5.3",
+    "bertopic>=0.16.0",
+    "scikit-learn>=1.0",
+]
+rag = [
+    "anthropic>=0.25.0",
+]
+
+[project.scripts]
+knowledge-assistant = "src.cli:cli"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks integration tests",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203", "W503"]
+exclude = [
+    ".git",
+    "__pycache__",
+    "venv",
+    "data",
+]
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
