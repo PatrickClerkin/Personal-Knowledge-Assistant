@@ -3,6 +3,10 @@ from typing import List, Optional
 from .parsers.base import BaseParser
 from .parsers.pdf_parser import PDFParser
 from .document import Document
+from ..utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class DocumentManager:
     """Manages document parsing with multiple parsers."""
@@ -24,20 +28,17 @@ class DocumentManager:
         parser = self.get_parser(file_path)
         if parser is None:
             raise ValueError(f"No parser available for {file_path.suffix}")
-        
         return parser.parse(file_path)
     
     def parse_directory(self, directory: Path) -> List[Document]:
         """Parse all supported documents in a directory."""
         documents = []
-        
         for file_path in directory.rglob('*'):
             if file_path.is_file() and self.get_parser(file_path):
                 try:
                     doc = self.parse_document(file_path)
                     documents.append(doc)
-                    print(f"✓ Parsed: {file_path.name}")
+                    logger.info("Parsed: %s", file_path.name)
                 except Exception as e:
-                    print(f"✗ Failed to parse {file_path.name}: {e}")
-        
+                    logger.error("Failed to parse %s: %s", file_path.name, e)
         return documents

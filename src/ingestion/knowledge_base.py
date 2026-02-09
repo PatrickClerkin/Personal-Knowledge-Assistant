@@ -10,7 +10,9 @@ from .chunking.chunk_manager import ChunkManager
 from .embeddings.embedding_service import EmbeddingService
 from .storage.faiss_store import FAISSVectorStore
 from .storage.vector_store import SearchResult
+from ..utils.logger import get_logger
 
+logger = get_logger(__name__)
 
 class KnowledgeBase:
     """
