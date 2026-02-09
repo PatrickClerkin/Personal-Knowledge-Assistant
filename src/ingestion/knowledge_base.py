@@ -1,10 +1,8 @@
 """High-level API for the Personal Knowledge Assistant."""
-
 from pathlib import Path
 from typing import List, Optional, Union
-
 from .document import Document
-from .parsers.pdf_parser import PDFParser
+from .document_manager import DocumentManager
 from .chunking.chunk import Chunk
 from .chunking.chunk_manager import ChunkManager
 from .embeddings.embedding_service import EmbeddingService
@@ -14,235 +12,199 @@ from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+
 class KnowledgeBase:
-    """
-    High-level API for the Personal Knowledge Assistant.
+    """High-level API for the Personal Knowledge Assistant.
 
-    Provides a simple interface for:
-    - Ingesting documents (PDFs)
-    - Semantic search across your knowledge base
-    - Managing stored documents
+    Provides a unified interface for ingesting documents of any supported
+    format, chunking them into semantic units, generating embeddings,
+    and performing similarity search.
 
-    Example:
-        kb = KnowledgeBase()
-        kb.ingest("path/to/document.pdf")
-        results = kb.search("What is composition in OOP?")
-        for result in results:
-            print(f"Score: {result.score:.3f}")
-            print(f"Content: {result.chunk.content[:200]}...")
+    Supports: .pdf, .txt, .md, .docx (via DocumentManager routing).
     """
 
-    def __init__(
-        self,
-        index_path: Optional[Union[str, Path]] = None,
-        embedding_model: str = "all-MiniLM-L6-v2",
-        chunk_strategy: str = "sentence",
-        chunk_size: int = 512,
-        chunk_overlap: int = 50,
-    ):
-        """
-        Initialize the knowledge base.
-
-        Args:
-            index_path: Path to save/load the vector index. If None, uses in-memory only.
-            embedding_model: Name of the sentence-transformers model to use.
-            chunk_strategy: Chunking strategy ("fixed", "sentence", or "semantic").
-            chunk_size: Target chunk size in characters.
-            chunk_overlap: Overlap between chunks in characters.
-        """
+    def __init__(self, index_path=None, embedding_model="all-MiniLM-L6-v2",
+                 chunk_strategy="sentence", chunk_size=512, chunk_overlap=50):
         self.index_path = Path(index_path) if index_path else None
-
-        # Initialize components
-        self._parser = PDFParser()
-        self._chunker = ChunkManager(
-            strategy=chunk_strategy,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-        )
+        self._doc_manager = DocumentManager()
+        self._chunker = ChunkManager(strategy=chunk_strategy, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         self._embedder = EmbeddingService(model_name=embedding_model)
-        self._store = FAISSVectorStore(
-            embedding_dim=self._embedder.embedding_dimension
-        )
-
-        # Load existing index if path provided and exists
+        self._store = FAISSVectorStore(embedding_dim=self._embedder.embedding_dimension)
         if self.index_path and (Path(str(self.index_path) + ".faiss").exists()):
             self.load()
+            logger.info("Loaded existing index from %s (%d chunks)", self.index_path, self.size)
 
-    def ingest(
-        self,
-        file_path: Union[str, Path],
-        show_progress: bool = True
-    ) -> int:
-        """
-        Ingest a document into the knowledge base.
+    def ingest(self, file_path, show_progress=True) -> int:
+        """Ingest a single document of any supported format.
+
+        Parses the file, chunks the content, generates embeddings,
+        and stores everything in the vector index.
 
         Args:
-            file_path: Path to the document (currently supports PDF).
-            show_progress: Whether to show progress during embedding.
+            file_path: Path to the document (.pdf, .txt, .md, .docx).
+            show_progress: Whether to show embedding progress bar.
 
         Returns:
-            Number of chunks created from the document.
+            Number of chunks created.
+
+        Raises:
+            ValueError: If the file format is not supported.
         """
         file_path = Path(file_path)
-
-        # Parse document
-        document = self._parser.parse(file_path)
-
-        # Chunk document
+        logger.info("Ingesting document: %s", file_path.name)
+        document = self._doc_manager.parse_document(file_path)
         chunks = self._chunker.chunk_document(document)
-
         if not chunks:
+            logger.warning("No chunks created from %s", file_path.name)
             return 0
-
-        # Generate embeddings
-        embeddings = self._embedder.embed_chunks(
-            chunks,
-            show_progress=show_progress,
-            store_in_chunks=True
-        )
-
-        # Store in vector database
+        embeddings = self._embedder.embed_chunks(chunks, show_progress=show_progress, store_in_chunks=True)
         self._store.add(chunks, embeddings)
-
-        # Auto-save if index path is set
-        if self.index_path:
-            self.save()
-
+        logger.info("Ingested %s: %d chunks created", file_path.name, len(chunks))
+        if self.index_path: self.save()
         return len(chunks)
 
-    def ingest_directory(
-        self,
-        directory: Union[str, Path],
-        pattern: str = "*.pdf",
-        show_progress: bool = True
-    ) -> dict:
-        """
-        Ingest all matching documents from a directory.
+    def ingest_directory(self, directory, pattern=None, show_progress=True) -> dict:
+        """Ingest all supported documents in a directory.
+
+        Scans the directory recursively for files matching any supported
+        format. Uses DocumentManager to automatically route each file
+        to the correct parser.
 
         Args:
-            directory: Path to the directory.
-            pattern: Glob pattern for files to ingest.
-            show_progress: Whether to show progress during embedding.
+            directory: Path to the directory to scan.
+            pattern: Optional glob pattern (e.g. '*.pdf'). If None,
+                     all supported formats are ingested.
+            show_progress: Whether to show embedding progress bar.
 
         Returns:
-            Dictionary with ingestion statistics.
+            Dict with keys: files_processed, files_failed, total_chunks, errors.
         """
         directory = Path(directory)
-        files = list(directory.glob(pattern))
-
-        stats = {
-            "files_processed": 0,
-            "files_failed": 0,
-            "total_chunks": 0,
-            "errors": [],
-        }
-
-        for file_path in files:
+        if pattern:
+            files = list(directory.rglob(pattern))
+        else:
+            # Collect all files matching any supported extension
+            files = [
+                f for f in directory.rglob("*")
+                if f.is_file() and self._doc_manager.get_parser(f) is not None
+            ]
+        stats = {"files_processed": 0, "files_failed": 0, "total_chunks": 0, "errors": []}
+        for fp in files:
             try:
-                num_chunks = self.ingest(file_path, show_progress=show_progress)
+                n = self.ingest(fp, show_progress=show_progress)
                 stats["files_processed"] += 1
-                stats["total_chunks"] += num_chunks
+                stats["total_chunks"] += n
             except Exception as e:
                 stats["files_failed"] += 1
-                stats["errors"].append({"file": str(file_path), "error": str(e)})
-
+                stats["errors"].append({"file": str(fp), "error": str(e)})
+                logger.error("Failed to ingest %s: %s", fp.name, e)
+        logger.info(
+            "Directory ingest complete: %d files, %d chunks, %d errors",
+            stats["files_processed"], stats["total_chunks"], stats["files_failed"]
+        )
         return stats
 
-    def search(
+    @property
+    def supported_formats(self) -> List[str]:
+        """Return list of supported file extensions."""
+        return self._doc_manager.supported_extensions
+
+    def search(self, query: str, top_k: int = 5, filter_doc_id=None) -> List[SearchResult]:
+        """Basic semantic search using FAISS."""
+        logger.debug("Searching for: '%s' (top_k=%d)", query, top_k)
+        query_embedding = self._embedder.embed_text(query)
+        results = self._store.search(query_embedding, top_k=top_k, filter_doc_id=filter_doc_id)
+        logger.debug("Found %d results", len(results))
+        return results
+
+    def advanced_search(
         self,
         query: str,
         top_k: int = 5,
-        filter_doc_id: Optional[str] = None
+        rerank: bool = False,
+        expand_query: Optional[str] = None,
+        rerank_candidates: int = 20,
+        filter_doc_id=None,
     ) -> List[SearchResult]:
-        """
-        Search the knowledge base for relevant content.
+        """Enhanced search with optional reranking and query expansion.
+
+        Supports a two-stage retrieval pipeline:
+        1. (Optional) Expand the query into multiple variants.
+        2. Retrieve candidates from FAISS for each query variant.
+        3. (Optional) Rerank candidates with a cross-encoder.
 
         Args:
             query: Natural language search query.
-            top_k: Number of results to return.
-            filter_doc_id: Optional document ID to restrict search to.
+            top_k: Number of final results to return.
+            rerank: Whether to apply cross-encoder reranking.
+            expand_query: Query expansion strategy ('synonym',
+                'multi_query', 'hyde', or None to skip).
+            rerank_candidates: Number of FAISS candidates to
+                retrieve before reranking.
+            filter_doc_id: Restrict results to a specific document.
 
         Returns:
-            List of SearchResult objects, sorted by relevance.
+            List of SearchResult objects, ranked by relevance.
         """
-        # Generate query embedding
-        query_embedding = self._embedder.embed_text(query)
+        # Stage 1: Query expansion
+        queries = [query]
+        if expand_query:
+            from .retrieval.query_expansion import QueryExpander
+            expander = QueryExpander(strategy=expand_query)
+            queries = expander.expand(query)
+            logger.info("Expanded query into %d variants", len(queries))
 
-        # Search vector store
-        results = self._store.search(
-            query_embedding,
-            top_k=top_k,
-            filter_doc_id=filter_doc_id
-        )
+        # Stage 2: Retrieve candidates
+        retrieve_k = rerank_candidates if rerank else top_k
+        seen_ids = set()
+        all_results = []
 
-        return results
+        for q in queries:
+            q_embedding = self._embedder.embed_text(q)
+            results = self._store.search(
+                q_embedding, top_k=retrieve_k, filter_doc_id=filter_doc_id
+            )
+            for r in results:
+                if r.chunk.chunk_id not in seen_ids:
+                    seen_ids.add(r.chunk.chunk_id)
+                    all_results.append(r)
+
+        # Sort by score and trim
+        all_results.sort(key=lambda r: r.score, reverse=True)
+
+        # Stage 3: Reranking
+        if rerank and all_results:
+            from .retrieval.reranker import CrossEncoderReranker
+            reranker = CrossEncoderReranker(top_k=top_k)
+            all_results = reranker.rerank(query, all_results, top_k=top_k)
+        else:
+            all_results = all_results[:top_k]
+            for i, r in enumerate(all_results, 1):
+                r.rank = i
+
+        return all_results
 
     def delete_document(self, doc_id: str) -> int:
-        """
-        Delete a document from the knowledge base.
-
-        Args:
-            doc_id: ID of the document to delete.
-
-        Returns:
-            Number of chunks deleted.
-        """
         deleted = self._store.delete_document(doc_id)
-
-        if self.index_path and deleted > 0:
-            self.save()
-
+        if self.index_path and deleted > 0: self.save()
         return deleted
 
-    def save(self, path: Optional[Union[str, Path]] = None) -> None:
-        """
-        Save the knowledge base to disk.
-
-        Args:
-            path: Path to save to. If None, uses the index_path from initialization.
-        """
+    def save(self, path=None):
         save_path = Path(path) if path else self.index_path
-        if not save_path:
-            raise ValueError("No save path specified")
-
+        if not save_path: raise ValueError("No save path specified")
         self._store.save(str(save_path))
 
-    def load(self, path: Optional[Union[str, Path]] = None) -> None:
-        """
-        Load the knowledge base from disk.
-
-        Args:
-            path: Path to load from. If None, uses the index_path from initialization.
-        """
+    def load(self, path=None):
         load_path = Path(path) if path else self.index_path
-        if not load_path:
-            raise ValueError("No load path specified")
-
+        if not load_path: raise ValueError("No load path specified")
         self._store.load(str(load_path))
 
-    def clear(self) -> None:
-        """Clear all data from the knowledge base."""
-        self._store.clear()
-
+    def clear(self): self._store.clear()
     @property
-    def size(self) -> int:
-        """Get the number of chunks in the knowledge base."""
-        return self._store.size
-
+    def size(self) -> int: return self._store.size
     @property
-    def document_ids(self) -> List[str]:
-        """Get all document IDs in the knowledge base."""
-        return self._store.get_document_ids()
-
+    def document_ids(self) -> List[str]: return self._store.get_document_ids()
     def get_document_chunks(self, doc_id: str) -> List[Chunk]:
-        """Get all chunks belonging to a specific document."""
-        return [
-            chunk for chunk in self._store.get_all_chunks()
-            if chunk.doc_id == doc_id
-        ]
-
-    def __len__(self) -> int:
-        return self.size
-
-    def __repr__(self) -> str:
-        return f"KnowledgeBase(size={self.size}, documents={len(self.document_ids)})"
+        return [c for c in self._store.get_all_chunks() if c.doc_id == doc_id]
+    def __len__(self): return self.size
+    def __repr__(self): return f"KnowledgeBase(size={self.size}, documents={len(self.document_ids)})"
