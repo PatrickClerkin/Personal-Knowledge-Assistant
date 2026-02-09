@@ -57,9 +57,4 @@ class FixedSizeChunker(BaseChunker):
         
         return chunks
     
-    def _get_page_number(self, char_position: int, document: Document) -> int:
-        """Determine which page a character position belongs to."""
-        for section in document.sections:
-            if section.start_char <= char_position < section.end_char:
-                return section.page_number
-        return None
+    
