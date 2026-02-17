@@ -5280,6 +5280,114 @@
       "end_char": 4260,
       "chunk_index": 9,
       "total_chunks": 10
+    },
+    {
+      "chunk_id": "284093cc7843502394041afabababcb8_chunk_0",
+      "doc_id": "284093cc7843502394041afabababcb8",
+      "content": "MOBILE APPLICATIONS DEVELOPMENT 2\nIHAB SALAWDEH\nDEPARTMENT OF COMPUTER SCIENCE & APPLIED PHYSICS \n\nINTRODUCTION TO IONIC\n2\n\nWHAT IS IONIC? \uf0a1Ionic is an SDK that helps you build native-feeling mobile apps using web technologies\n\uf0a1Open-source framework for building cross-platform mobile apps. \uf0a1Uses HTML, CSS, JavaScript, and TypeScript. \uf0a1Works with Angular, React, and Vue. \uf0a1Provides a library of UI components and native plugins. WHY USE IONIC? \uf0a1Native apps need knowledge in many distinct domains e.g.",
+      "source_doc_title": "Lecture 8 - Introduction to IONIC",
+      "section_id": null,
+      "page_number": 1,
+      "start_char": 0,
+      "end_char": 502,
+      "chunk_index": 0,
+      "total_chunks": 9
+    },
+    {
+      "chunk_id": "284093cc7843502394041afabababcb8_chunk_1",
+      "doc_id": "284093cc7843502394041afabababcb8",
+      "content": "Android (Java), iOS (Swift). \uf0a1Develop once, deploy on multiple platforms. \uf0a1Uses web technologies (easy to learn). \uf0a1Rich UI components for fast development. \uf0a1Supports PWAs and native mobile apps. \uf0a1Active community and extensive documentation.",
+      "source_doc_title": "Lecture 8 - Introduction to IONIC",
+      "section_id": null,
+      "page_number": 4,
+      "start_char": 502,
+      "end_char": 743,
+      "chunk_index": 1,
+      "total_chunks": 9
+    },
+    {
+      "chunk_id": "284093cc7843502394041afabababcb8_chunk_2",
+      "doc_id": "284093cc7843502394041afabababcb8",
+      "content": "\uf0a1Active community and extensive documentation. SETTING UP IONIC\n\uf0a1Install Node.js and npm\n\uf0a1Install Ionic CLI: \n\uf0a1\nnpm install -g @ionic/cli\n\uf0a1Create a new project: \n\uf0a1\nionic start myApp blank --type=angular\n\uf0a1Navigate to the project folder: \n\uf0a1\ncd myApp\n\uf0a1Run the app in the browser: \n\uf0a1\nionic serve\n\nFIRST IONIC APP - FOLDER STRUCTURE\n\uf0a1src/: Main app source code\n\uf0a1src/app/: Application modules & components\n\uf0a1src/assets/: Images & static assets\n\uf0a1src/theme/: Theme customization\n\uf0a1src/pages/: App screens (e.g., Home, Login, Dashboard)\n\nIONIC APPLICATION STRUCTURE\n7\n\nIONIC ROUTING\n8\n\nBASIC IONIC UI COMPONENTS\n\uf0a1ion-header: Defines the app header.",
+      "source_doc_title": "Lecture 8 - Introduction to IONIC",
+      "section_id": null,
+      "page_number": 4,
+      "start_char": 697,
+      "end_char": 1334,
+      "chunk_index": 2,
+      "total_chunks": 9
+    },
+    {
+      "chunk_id": "284093cc7843502394041afabababcb8_chunk_3",
+      "doc_id": "284093cc7843502394041afabababcb8",
+      "content": "\uf0a1ion-toolbar: Contains navigation, titles, buttons. \uf0a1ion-content: Main scrollable content area. \uf0a1ion-footer: Footer section. \uf0a1ion-button: Custom buttons with styles. SAMPLE CODE FOR BASIC LAYOUT\n<ion-header>\n<ion-toolbar>\n<ion-title>My First Ionic App</ion-title>\n</ion-toolbar>\n</ion-header>\n<ion-content>\n<ion-button expand='full'>Click Me</ion-button>\n</ion-content>\n\nTESTING & DEPLOYMENT\n\uf0a1Use `ionic serve` to test in the browser. \uf0a1Test on a device using `ionic capacitor run android`.",
+      "source_doc_title": "Lecture 8 - Introduction to IONIC",
+      "section_id": null,
+      "page_number": 9,
+      "start_char": 1334,
+      "end_char": 1823,
+      "chunk_index": 3,
+      "total_chunks": 9
+    },
+    {
+      "chunk_id": "284093cc7843502394041afabababcb8_chunk_4",
+      "doc_id": "284093cc7843502394041afabababcb8",
+      "content": "\uf0a1Deploy as a Progressive Web App (PWA) or native app. IONIC APPLICATION STRUCTURE HOME COMPONENT\n12\n\nIONIC NAVIGATION\n13\n\nIONIC NAVIGATION\n\u25aaTo generate a new page:\n\uf0a1ionic generate page pageName\n\uf0a1E.g. ionic generate page student\n\uf0a1This will generate a folder called student in the pages folder of the application.",
+      "source_doc_title": "Lecture 8 - Introduction to IONIC",
+      "section_id": null,
+      "page_number": 11,
+      "start_char": 1823,
+      "end_char": 2134,
+      "chunk_index": 4,
+      "total_chunks": 9
+    },
+    {
+      "chunk_id": "284093cc7843502394041afabababcb8_chunk_5",
+      "doc_id": "284093cc7843502394041afabababcb8",
+      "content": "IONIC NAVIGATION\n\nIONIC NAVIGATION\n\nIONIC NAVIGATION\n\nIONIC NAVIGATION\nJOHN A: Angular \nRouter\n\nIONIC NAVIGATION\nJOHN B: RouterLink\n\nIONIC COMPONENTS\n\uf0a1Ionic apps are made of high-level building blocks called components. \uf0a1Components allow you to quickly construct an interface for your app.",
+      "source_doc_title": "Lecture 8 - Introduction to IONIC",
+      "section_id": null,
+      "page_number": 14,
+      "start_char": 2134,
+      "end_char": 2423,
+      "chunk_index": 5,
+      "total_chunks": 9
+    },
+    {
+      "chunk_id": "284093cc7843502394041afabababcb8_chunk_6",
+      "doc_id": "284093cc7843502394041afabababcb8",
+      "content": "\uf0a1There are many built-in components such as Button which can be enhanced with\n\uf0a1directives:\n\uf0a1\n<button >Press Me</button>\n\uf0a1\n<ion-button>Press Me</ionbutton>\n\uf0a1\n<ion-button shape=\"round\">PRESS ME</ion-button>\n\uf0a1http://ionicframework.com/\n\nIONIC COMPONENTS\n\nIONIC COMPONENTS\n\uf0a1IONIC Button\n\nIONIC OVERVIEW\n23\nYour App\nIonic\nAngular\nCordova/Capacitor\nNative SDK\n\niOS API\niOS\nCORDOVA/CAPACITOR\n\uf0a1Cordova/Capacitor enables programmers to build applications for \nsupported platforms, using web technologies instead of platform-specific \nAPIs, like those in Android and iOS.",
+      "source_doc_title": "Lecture 8 - Introduction to IONIC",
+      "section_id": null,
+      "page_number": 20,
+      "start_char": 2423,
+      "end_char": 2984,
+      "chunk_index": 6,
+      "total_chunks": 9
+    },
+    {
+      "chunk_id": "284093cc7843502394041afabababcb8_chunk_7",
+      "doc_id": "284093cc7843502394041afabababcb8",
+      "content": "24\nCordova/Capacitor\nYour App\nAndroid API\nAndroid\nJavaScript API\niOS API\nAndroid API\n\nCORDOVA/CAPACITOR\n\uf0a1Cordova/Capacitor developers can use HTML5, CSS3, and JavaScript to \nbuild applications. \uf0a1Cordova/Capacitor converts those applications into native apps for \nsupported platforms. \uf0a1Cordova/Capacitor provides plug-ins that make the native capabilities, the \nbuilt-in features of the device, available to the app via JavaScript.",
+      "source_doc_title": "Lecture 8 - Introduction to IONIC",
+      "section_id": null,
+      "page_number": 24,
+      "start_char": 2984,
+      "end_char": 3414,
+      "chunk_index": 7,
+      "total_chunks": 9
+    },
+    {
+      "chunk_id": "284093cc7843502394041afabababcb8_chunk_8",
+      "doc_id": "284093cc7843502394041afabababcb8",
+      "content": "25\n\nIONIC VS CORDOVA/CAPACITOR\n\uf0a1Ionic is focused mainly on the look and feel, and User Interface (UI) \ninteraction of your app. \uf0a1Ionic is not a replacement for Cordova/Capcitor it simply fits in well with it in \norder to simplify your app\u2019s front end. \uf0a1http://ionicframework.com/\n26\n\nQUESTIONS",
+      "source_doc_title": "Lecture 8 - Introduction to IONIC",
+      "section_id": null,
+      "page_number": 25,
+      "start_char": 3414,
+      "end_char": 3707,
+      "chunk_index": 8,
+      "total_chunks": 9
     }
   ]
 }
