@@ -10,6 +10,8 @@ LLMProvider interface, not a concrete implementation.
 """
 
 import os
+from dotenv import load_dotenv
+load_dotenv()
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List, Optional

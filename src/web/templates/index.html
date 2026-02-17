@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Knowledge Assistant</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
     <style>
         :root {
             --bg: #0f1117;
@@ -197,6 +198,44 @@
         .chat-msg.assistant {
             background: #1e2130;
             border: 1px solid var(--border);
+        }
+
+        .chat-msg h1, .chat-msg h2, .chat-msg h3 {
+            margin: 0.6rem 0 0.3rem;
+            font-size: 1rem;
+            color: var(--accent-hover);
+        }
+
+        .chat-msg ul, .chat-msg ol {
+            padding-left: 1.5rem;
+            margin: 0.4rem 0;
+        }
+
+        .chat-msg li { margin: 0.25rem 0; }
+
+        .chat-msg strong { color: #e4e4e7; }
+
+        .chat-msg p { margin: 0.4rem 0; }
+
+        .chat-msg code {
+            background: #0f1117;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            color: #a78bfa;
+        }
+
+        .chat-msg pre {
+            background: #0f1117;
+            padding: 0.75rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 0.5rem 0;
+        }
+
+        .chat-msg pre code {
+            background: none;
+            padding: 0;
         }
 
         .chat-msg .sources {
@@ -399,13 +438,11 @@
             const question = chatInput.value.trim();
             if (!question) return;
 
-            // Add user message
             chatMessages.innerHTML += `<div class="chat-msg user">${escapeHtml(question)}</div>`;
             chatInput.value = '';
             chatBtn.disabled = true;
             chatMessages.scrollTop = chatMessages.scrollHeight;
 
-            // Loading indicator
             const loadingId = 'loading-' + Date.now();
             chatMessages.innerHTML += `<div class="chat-msg assistant loading" id="${loadingId}">Thinking...</div>`;
             chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -431,7 +468,7 @@
                         ).join(' · ');
                         sourcesHtml = `<div class="sources">Sources: ${sources}</div>`;
                     }
-                    loadingEl.innerHTML = escapeHtml(data.answer) + sourcesHtml;
+                    loadingEl.innerHTML = marked.parse(data.answer) + sourcesHtml;
                     loadingEl.classList.remove('loading');
                 }
             } catch (e) {
