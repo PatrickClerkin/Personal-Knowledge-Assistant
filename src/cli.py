@@ -154,18 +154,23 @@ def ingest(ctx, path, recursive):
 @click.option("--expand", "-e", default=None,
               type=click.Choice(["synonym", "multi_query", "hyde"]),
               help="Query expansion strategy.")
+@click.option("--hybrid/--no-hybrid", default=False,
+              help="Use BM25+FAISS hybrid search (Reciprocal Rank Fusion).")
 @click.pass_context
-def search(ctx, query, top_k, doc_id, show_content, rerank, expand):
+def search(ctx, query, top_k, doc_id, show_content, rerank, expand, hybrid):
     """Search the knowledge base with a natural language query.
 
     Returns the most semantically similar chunks to the query.
-    Use --rerank for higher precision or --expand for better recall.
+    Use --rerank for higher precision, --expand for better recall,
+    or --hybrid to combine keyword (BM25) and semantic (FAISS) search
+    via Reciprocal Rank Fusion.
 
     \b
     Examples:
         python -m src.cli search "What is dependency injection?"
         python -m src.cli search "design patterns" --top-k 10
-        python -m src.cli search "testing" --rerank --expand synonym
+        python -m src.cli search "FAISS cosine similarity" --hybrid
+        python -m src.cli search "testing" --hybrid --rerank --expand synonym
     """
     kb = _create_kb(
         ctx.obj["index"], ctx.obj["strategy"],
@@ -180,6 +185,8 @@ def search(ctx, query, top_k, doc_id, show_content, rerank, expand):
         raise SystemExit(1)
 
     mode_parts = []
+    if hybrid:
+        mode_parts.append("hybrid BM25+FAISS")
     if rerank:
         mode_parts.append("reranking")
     if expand:
@@ -187,10 +194,10 @@ def search(ctx, query, top_k, doc_id, show_content, rerank, expand):
     mode_str = f" ({', '.join(mode_parts)})" if mode_parts else ""
     click.echo(f'Searching for: "{query}" (top {top_k}){mode_str}\n')
 
-    if rerank or expand:
+    if hybrid or rerank or expand:
         results = kb.advanced_search(
             query, top_k=top_k, rerank=rerank,
-            expand_query=expand, filter_doc_id=doc_id,
+            expand_query=expand, filter_doc_id=doc_id, hybrid=hybrid,
         )
     else:
         results = kb.search(query, top_k=top_k, filter_doc_id=doc_id)
@@ -212,7 +219,6 @@ def search(ctx, query, top_k, doc_id, show_content, rerank, expand):
         click.echo(f"    Chunk: {chunk.chunk_index + 1}/{chunk.total_chunks}")
 
         if show_content:
-            # Truncate long content for display
             content = chunk.content.strip()
             if len(content) > 300:
                 content = content[:300] + "..."
@@ -290,7 +296,6 @@ def compare(ctx, path, strategies):
     click.echo(click.style(f"Strategy Comparison: {Path(path).name}", bold=True))
     click.echo(f"Document length: {len(doc.content):,} characters\n")
 
-    # Table header
     click.echo(f"{'Strategy':<25} {'Chunks':>7} {'Avg Size':>9} {'Min':>6} {'Max':>6} {'Coverage':>9}")
     click.echo("─" * 67)
 
@@ -416,18 +421,24 @@ def evaluate(ctx, judgments_path, top_k):
 @click.option("--expand", "-e", default=None,
               type=click.Choice(["synonym", "multi_query", "hyde"]),
               help="Query expansion strategy.")
+@click.option("--hybrid/--no-hybrid", default=False,
+              help="Use BM25+FAISS hybrid retrieval in the RAG pipeline.")
 @click.pass_context
-def chat(ctx, top_k, rerank, expand):
+def chat(ctx, top_k, rerank, expand, hybrid):
     """Interactive RAG-powered chat with the knowledge base.
 
     Ask questions in natural language and receive answers grounded
     in your ingested documents. Maintains conversation context for
     follow-up questions. Requires ANTHROPIC_API_KEY to be set.
 
+    Use --hybrid to enable BM25+FAISS retrieval inside the RAG pipeline
+    for better performance on technical or exact-phrase queries.
+
     \b
     Examples:
         python -m src.cli chat
-        python -m src.cli chat --rerank --expand synonym
+        python -m src.cli chat --hybrid
+        python -m src.cli chat --hybrid --rerank --expand synonym
     """
     from .rag.llm import ClaudeProvider
     from .rag.pipeline import RAGPipeline
@@ -457,9 +468,19 @@ def chat(ctx, top_k, rerank, expand):
         top_k=top_k,
         rerank=rerank,
         expand_query=expand,
+        hybrid=hybrid,
     )
 
-    click.echo(click.style("Knowledge Assistant Chat", bold=True))
+    mode_parts = []
+    if hybrid:
+        mode_parts.append("hybrid")
+    if rerank:
+        mode_parts.append("rerank")
+    if expand:
+        mode_parts.append(expand)
+    mode_str = f" [{', '.join(mode_parts)}]" if mode_parts else ""
+
+    click.echo(click.style(f"Knowledge Assistant Chat{mode_str}", bold=True))
     click.echo(f"Index: {kb.size} chunks from {len(kb.document_ids)} documents")
     click.echo("Type 'quit' to exit, 'clear' to reset conversation.\n")
 
@@ -490,7 +511,6 @@ def chat(ctx, top_k, rerank, expand):
             click.echo(click.style("Assistant", fg="green", bold=True) + ": " + response.answer)
             click.echo()
 
-            # Show sources
             if response.sources:
                 click.echo(click.style("Sources:", dim=True))
                 seen_sources = set()
@@ -512,4 +532,3 @@ def chat(ctx, top_k, rerank, expand):
 
 if __name__ == "__main__":
     cli()
-

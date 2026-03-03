@@ -61,6 +61,7 @@ class RAGPipeline:
     Supports:
         - Single-turn and multi-turn conversations.
         - Optional reranking and query expansion.
+        - Optional hybrid BM25+FAISS retrieval.
         - Configurable context window and system prompt.
         - Source citation in responses.
 
@@ -81,6 +82,7 @@ class RAGPipeline:
         max_context_chars: int = 8000,
         rerank: bool = False,
         expand_query: Optional[str] = None,
+        hybrid: bool = False,
     ):
         self.kb = knowledge_base
         self.llm = llm_provider
@@ -89,6 +91,7 @@ class RAGPipeline:
         self.max_context_chars = max_context_chars
         self.rerank = rerank
         self.expand_query = expand_query
+        self.hybrid = hybrid
         self._history: List[Message] = []
 
     def query(
@@ -110,12 +113,13 @@ class RAGPipeline:
         top_k = top_k or self.top_k
 
         # Retrieve relevant context
-        if self.rerank or self.expand_query:
+        if self.hybrid or self.rerank or self.expand_query:
             results = self.kb.advanced_search(
                 question,
                 top_k=top_k,
                 rerank=self.rerank,
                 expand_query=self.expand_query,
+                hybrid=self.hybrid,
             )
         else:
             results = self.kb.search(question, top_k=top_k)
@@ -182,7 +186,6 @@ class RAGPipeline:
 
         for r in results:
             chunk = r.chunk
-            # Build source reference
             source_info = f"Source: {chunk.source_doc_title}"
             if chunk.page_number:
                 source_info += f", Page {chunk.page_number}"
@@ -193,7 +196,6 @@ class RAGPipeline:
                 f"{chunk.content.strip()}\n"
             )
 
-            # Enforce context length limit
             if total_chars + len(chunk_text) > self.max_context_chars:
                 remaining = self.max_context_chars - total_chars
                 if remaining > 100:
