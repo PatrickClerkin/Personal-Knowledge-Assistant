@@ -38,7 +38,7 @@ pip install -r requirements.txt
 # Ingest a document
 python -m src.cli ingest paper.pdf
 
-# Search your knowledge base
+# Search the knowledge base
 python -m src.cli search "What is dependency injection?"
 
 # Interactive RAG chat (requires ANTHROPIC_API_KEY)
