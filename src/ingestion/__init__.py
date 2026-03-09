@@ -7,6 +7,7 @@ from .embeddings import EmbeddingService
 from .storage import VectorStore, FAISSVectorStore, SearchResult
 from .knowledge_base import KnowledgeBase
 from .document_manager import DocumentManager
+from .ner_extractor import NERExtractor
 
 __all__ = [
     # High-level API
@@ -29,4 +30,6 @@ __all__ = [
     "VectorStore",
     "FAISSVectorStore",
     "SearchResult",
+    # NER
+    "NERExtractor",
 ]
