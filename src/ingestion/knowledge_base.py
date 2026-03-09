@@ -9,6 +9,7 @@ from .embeddings.embedding_service import EmbeddingService
 from .storage.faiss_store import FAISSVectorStore
 from .storage.bm25_store import BM25Store
 from .storage.vector_store import SearchResult
+from .ner_extractor import NERExtractor
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -25,6 +26,7 @@ class KnowledgeBase:
         self._embedder = EmbeddingService(model_name=embedding_model)
         self._store = FAISSVectorStore(embedding_dim=self._embedder.embedding_dimension)
         self._bm25 = BM25Store()
+        self._ner = NERExtractor()
         if self.index_path and (Path(str(self.index_path) + ".faiss").exists()):
             self.load()
             logger.info("Loaded existing index from %s (%d chunks)", self.index_path, self.size)
@@ -34,7 +36,9 @@ class KnowledgeBase:
         document = self._doc_manager.parse_document(file_path)
         chunks = self._chunker.chunk_document(document)
         if not chunks:
+            logger.warning("No chunks created for %s", file_path.name)
             return 0
+        self._ner.extract_from_chunks(chunks)
         embeddings = self._embedder.embed_chunks(chunks, show_progress=show_progress, store_in_chunks=True)
         self._store.add(chunks, embeddings)
         self._bm25.add(chunks)
@@ -66,8 +70,11 @@ class KnowledgeBase:
 
     def search(self, query: str, top_k: int = 5, filter_doc_id=None) -> List[SearchResult]:
         """Basic semantic search using FAISS."""
+        logger.debug("Searching for: '%s'", query[:50])
         query_embedding = self._embedder.embed_text(query)
-        return self._store.search(query_embedding, top_k=top_k, filter_doc_id=filter_doc_id)
+        results = self._store.search(query_embedding, top_k=top_k, filter_doc_id=filter_doc_id)
+        logger.debug("FAISS search returned %d results", len(results))
+        return results
 
     def hybrid_search(
         self,
@@ -77,11 +84,7 @@ class KnowledgeBase:
         bm25_candidates: int = 20,
         filter_doc_id: Optional[str] = None,
     ) -> List[SearchResult]:
-        """Hybrid BM25 + FAISS search merged with Reciprocal Rank Fusion.
-
-        Combines keyword precision (BM25) with semantic recall (FAISS).
-        Particularly effective for exact technical terms and phrase matching.
-        """
+        """Hybrid BM25 + FAISS search merged with Reciprocal Rank Fusion."""
         from ..retrieval.hybrid_search import HybridSearcher
         query_embedding = self._embedder.embed_text(query)
         searcher = HybridSearcher(self._store, self._bm25)
@@ -102,12 +105,15 @@ class KnowledgeBase:
         rerank_candidates: int = 20,
         filter_doc_id=None,
         hybrid: bool = False,
+        entity_boost: bool = True,
+        label_filter: Optional[str] = None,
     ) -> List[SearchResult]:
-        """Enhanced search: optional reranking, query expansion, and/or hybrid mode."""
+        """Enhanced search: optional reranking, query expansion, hybrid mode, and entity boosting."""
         queries = [query]
         if expand_query:
             from ..retrieval.query_expansion import QueryExpander
             queries = QueryExpander(strategy=expand_query).expand(query)
+            logger.info("Query expanded to %d variants", len(queries))
 
         retrieve_k = rerank_candidates if rerank else top_k
         seen_ids, all_results = set(), []
@@ -124,6 +130,23 @@ class KnowledgeBase:
                     all_results.append(r)
 
         all_results.sort(key=lambda r: r.score, reverse=True)
+
+        # Entity boosting / label filtering
+        if entity_boost or label_filter:
+            from ..retrieval.entity_reranker import boost_by_entities
+            query_entities = self._ner.extract(query)
+            result_pairs = [(r.chunk, r.score) for r in all_results]
+            boosted_pairs = boost_by_entities(
+                result_pairs, query_entities,
+                label_filter=label_filter,
+            )
+            # Rebuild SearchResult list preserving original SearchResult objects where possible
+            chunk_to_result = {r.chunk.chunk_id: r for r in all_results}
+            all_results = []
+            for chunk, score in boosted_pairs:
+                original = chunk_to_result[chunk.chunk_id]
+                original.score = score
+                all_results.append(original)
 
         if rerank and all_results:
             from ..retrieval.reranker import CrossEncoderReranker
