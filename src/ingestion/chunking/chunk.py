@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import numpy as np
 
 
@@ -23,18 +23,21 @@ class Chunk:
     # Metadata
     chunk_index: int = 0
     total_chunks: Optional[int] = None
-    
+
     # Semantic chunking metadata
     chunking_method: Optional[str] = None  # Which method created this chunk
-    topic_id: Optional[int] = None  # For topic-based chunking
-    cluster_id: Optional[int] = None  # For density-based chunking
+    topic_id: Optional[int] = None         # For topic-based chunking
+    cluster_id: Optional[int] = None       # For density-based chunking
     hierarchy_level: Optional[int] = None  # For recursive chunking
     parent_chunk_id: Optional[str] = None  # For hierarchical relationships
     child_chunk_ids: List[str] = field(default_factory=list)
-    
+
     # Similarity scores (populated during semantic chunking)
     boundary_similarity: Optional[float] = None  # Similarity at chunk boundary
-    coherence_score: Optional[float] = None  # Internal coherence measure
+    coherence_score: Optional[float] = None      # Internal coherence measure
+
+    # General-purpose metadata dict (used by NER and other annotators)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     # Embedding vector (populated by EmbeddingService)
     embedding: Optional[np.ndarray] = None
@@ -65,7 +68,7 @@ class Chunk:
         if self.section_id:
             citation += f" ({self.section_id})"
         return citation
-    
+
     def to_dict(self) -> dict:
         """Convert chunk to dictionary (for serialization)."""
         return {
@@ -87,8 +90,9 @@ class Chunk:
             "child_chunk_ids": self.child_chunk_ids,
             "boundary_similarity": self.boundary_similarity,
             "coherence_score": self.coherence_score,
+            "metadata": self.metadata,
         }
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "Chunk":
         """Create chunk from dictionary."""
@@ -111,4 +115,5 @@ class Chunk:
             child_chunk_ids=data.get("child_chunk_ids", []),
             boundary_similarity=data.get("boundary_similarity"),
             coherence_score=data.get("coherence_score"),
+            metadata=data.get("metadata", {}),
         )
