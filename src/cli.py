@@ -1,15 +1,5 @@
 """
 Command-line interface for the Personal Knowledge Assistant.
-
-Provides commands for document ingestion, semantic search, index
-management, and chunking strategy comparison.
-
-Usage:
-    python -m src.cli ingest <file_or_directory>
-    python -m src.cli search "your query"
-    python -m src.cli info
-    python -m src.cli compare <file>
-    python -m src.cli clear --confirm
 """
 
 import click
@@ -24,7 +14,6 @@ logger = get_logger(__name__)
 
 def _create_kb(index_path: str, strategy: str, chunk_size: int,
                chunk_overlap: int, model: str) -> KnowledgeBase:
-    """Create a KnowledgeBase instance with the given configuration."""
     return KnowledgeBase(
         index_path=index_path,
         chunk_strategy=strategy,
@@ -35,50 +24,24 @@ def _create_kb(index_path: str, strategy: str, chunk_size: int,
 
 
 @click.group()
-@click.option(
-    "--index", "-i",
-    default="data/index/default",
-    help="Path to the FAISS index (default: data/index/default).",
-    show_default=True,
-)
-@click.option(
-    "--strategy", "-s",
-    default="sentence",
-    type=click.Choice([
-        "fixed", "sentence", "embedding_similarity",
-        "density_clustering", "topic_modeling",
-        "recursive_hierarchical", "auto",
-    ]),
-    help="Chunking strategy to use.",
-    show_default=True,
-)
-@click.option(
-    "--chunk-size", "-c",
-    default=512,
-    type=int,
-    help="Target chunk size in characters.",
-    show_default=True,
-)
-@click.option(
-    "--chunk-overlap",
-    default=50,
-    type=int,
-    help="Overlap between chunks in characters.",
-    show_default=True,
-)
-@click.option(
-    "--model", "-m",
-    default="all-MiniLM-L6-v2",
-    help="Sentence-transformer model for embeddings.",
-    show_default=True,
-)
+@click.option("--index", "-i", default="data/index/default",
+              help="Path to the FAISS index (default: data/index/default).", show_default=True)
+@click.option("--strategy", "-s", default="sentence",
+              type=click.Choice([
+                  "fixed", "sentence", "embedding_similarity",
+                  "density_clustering", "topic_modeling",
+                  "recursive_hierarchical", "auto",
+              ]),
+              help="Chunking strategy to use.", show_default=True)
+@click.option("--chunk-size", "-c", default=512, type=int,
+              help="Target chunk size in characters.", show_default=True)
+@click.option("--chunk-overlap", default=50, type=int,
+              help="Overlap between chunks in characters.", show_default=True)
+@click.option("--model", "-m", default="all-MiniLM-L6-v2",
+              help="Sentence-transformer model for embeddings.", show_default=True)
 @click.pass_context
 def cli(ctx, index, strategy, chunk_size, chunk_overlap, model):
-    """Personal Knowledge Assistant — document ingestion and semantic search.
-
-    Ingest documents (.pdf, .txt, .md, .docx), build a vector index,
-    and search with natural language queries.
-    """
+    """Personal Knowledge Assistant — document ingestion and semantic search."""
     ctx.ensure_object(dict)
     ctx.obj["index"] = index
     ctx.obj["strategy"] = strategy
@@ -93,17 +56,7 @@ def cli(ctx, index, strategy, chunk_size, chunk_overlap, model):
               help="Recursively scan directories.")
 @click.pass_context
 def ingest(ctx, path, recursive):
-    """Ingest a document or directory of documents.
-
-    Parses the file(s), chunks the content, generates embeddings,
-    and stores them in the vector index.
-
-    \b
-    Examples:
-        python -m src.cli ingest paper.pdf
-        python -m src.cli ingest ./documents/
-        python -m src.cli ingest notes.md --strategy fixed --chunk-size 256
-    """
+    """Ingest a document or directory of documents."""
     kb = _create_kb(
         ctx.obj["index"], ctx.obj["strategy"],
         ctx.obj["chunk_size"], ctx.obj["chunk_overlap"], ctx.obj["model"],
@@ -114,9 +67,7 @@ def ingest(ctx, path, recursive):
         click.echo(f"Ingesting: {path.name}")
         try:
             n_chunks = kb.ingest(path)
-            click.echo(
-                click.style(f"  ✓ Created {n_chunks} chunks", fg="green")
-            )
+            click.echo(click.style(f"  ✓ Created {n_chunks} chunks", fg="green"))
         except ValueError as e:
             click.echo(click.style(f"  ✗ {e}", fg="red"))
             raise SystemExit(1)
@@ -129,9 +80,7 @@ def ingest(ctx, path, recursive):
         click.echo(f"  Files processed: {stats['files_processed']}")
         click.echo(f"  Total chunks:    {stats['total_chunks']}")
         if stats["files_failed"] > 0:
-            click.echo(click.style(
-                f"  Files failed:    {stats['files_failed']}", fg="red"
-            ))
+            click.echo(click.style(f"  Files failed:    {stats['files_failed']}", fg="red"))
             for err in stats["errors"]:
                 click.echo(f"    - {err['file']}: {err['error']}")
     else:
@@ -156,21 +105,18 @@ def ingest(ctx, path, recursive):
               help="Query expansion strategy.")
 @click.option("--hybrid/--no-hybrid", default=False,
               help="Use BM25+FAISS hybrid search (Reciprocal Rank Fusion).")
+@click.option("--entity-filter", default=None,
+              help="Only return chunks containing this entity type e.g. PERSON, ORG, GPE.")
 @click.pass_context
-def search(ctx, query, top_k, doc_id, show_content, rerank, expand, hybrid):
+def search(ctx, query, top_k, doc_id, show_content, rerank, expand, hybrid, entity_filter):
     """Search the knowledge base with a natural language query.
-
-    Returns the most semantically similar chunks to the query.
-    Use --rerank for higher precision, --expand for better recall,
-    or --hybrid to combine keyword (BM25) and semantic (FAISS) search
-    via Reciprocal Rank Fusion.
 
     \b
     Examples:
         python -m src.cli search "What is dependency injection?"
         python -m src.cli search "design patterns" --top-k 10
         python -m src.cli search "FAISS cosine similarity" --hybrid
-        python -m src.cli search "testing" --hybrid --rerank --expand synonym
+        python -m src.cli search "who founded Anthropic" --entity-filter PERSON
     """
     kb = _create_kb(
         ctx.obj["index"], ctx.obj["strategy"],
@@ -191,13 +137,16 @@ def search(ctx, query, top_k, doc_id, show_content, rerank, expand, hybrid):
         mode_parts.append("reranking")
     if expand:
         mode_parts.append(f"{expand} expansion")
+    if entity_filter:
+        mode_parts.append(f"entity filter: {entity_filter}")
     mode_str = f" ({', '.join(mode_parts)})" if mode_parts else ""
     click.echo(f'Searching for: "{query}" (top {top_k}){mode_str}\n')
 
-    if hybrid or rerank or expand:
+    if hybrid or rerank or expand or entity_filter:
         results = kb.advanced_search(
             query, top_k=top_k, rerank=rerank,
-            expand_query=expand, filter_doc_id=doc_id, hybrid=hybrid,
+            expand_query=expand, filter_doc_id=doc_id,
+            hybrid=hybrid, label_filter=entity_filter,
         )
     else:
         results = kb.search(query, top_k=top_k, filter_doc_id=doc_id)
@@ -218,6 +167,12 @@ def search(ctx, query, top_k, doc_id, show_content, rerank, expand, hybrid):
             click.echo(f"    Page: {chunk.page_number}")
         click.echo(f"    Chunk: {chunk.chunk_index + 1}/{chunk.total_chunks}")
 
+        # Show entities if present
+        entities = chunk.metadata.get("entities", [])
+        if entities:
+            entity_str = ", ".join(f"{e['text']} ({e['label']})" for e in entities[:5])
+            click.echo(f"    Entities: {entity_str}")
+
         if show_content:
             content = chunk.content.strip()
             if len(content) > 300:
@@ -229,11 +184,7 @@ def search(ctx, query, top_k, doc_id, show_content, rerank, expand, hybrid):
 @cli.command()
 @click.pass_context
 def info(ctx):
-    """Show index statistics and document inventory.
-
-    Displays the number of chunks, documents, and configuration
-    details for the current index.
-    """
+    """Show index statistics and document inventory."""
     kb = _create_kb(
         ctx.obj["index"], ctx.obj["strategy"],
         ctx.obj["chunk_size"], ctx.obj["chunk_overlap"], ctx.obj["model"],
@@ -260,23 +211,11 @@ def info(ctx):
 
 @cli.command()
 @click.argument("path", type=click.Path(exists=True))
-@click.option(
-    "--strategies", "-s",
-    default=None,
-    help="Comma-separated strategies to compare (default: all simple + embedding_similarity).",
-)
+@click.option("--strategies", "-s", default=None,
+              help="Comma-separated strategies to compare (default: all simple + embedding_similarity).")
 @click.pass_context
 def compare(ctx, path, strategies):
-    """Compare chunking strategies on a document.
-
-    Analyses how different strategies break down the same document,
-    showing chunk counts, sizes, and coverage.
-
-    \b
-    Examples:
-        python -m src.cli compare paper.pdf
-        python -m src.cli compare notes.md -s fixed,sentence
-    """
+    """Compare chunking strategies on a document."""
     from .ingestion.document_manager import DocumentManager
     from .ingestion.chunking.chunk_manager import ChunkManager
 
@@ -316,10 +255,7 @@ def compare(ctx, path, strategies):
 @click.option("--confirm", is_flag=True, help="Skip confirmation prompt.")
 @click.pass_context
 def delete_doc(ctx, doc_id, confirm):
-    """Delete a document from the index by its ID.
-
-    Use 'info' command to see document IDs.
-    """
+    """Delete a document from the index by its ID."""
     kb = _create_kb(
         ctx.obj["index"], ctx.obj["strategy"],
         ctx.obj["chunk_size"], ctx.obj["chunk_overlap"], ctx.obj["model"],
@@ -349,9 +285,7 @@ def clear(ctx, confirm):
     kb.clear()
     if kb.index_path:
         kb.save()
-    click.echo(click.style(
-        f"Index cleared. Removed {size_before} chunks.", fg="green"
-    ))
+    click.echo(click.style(f"Index cleared. Removed {size_before} chunks.", fg="green"))
 
 
 @cli.command("eval")
@@ -360,20 +294,7 @@ def clear(ctx, confirm):
               help="Number of results to evaluate.", show_default=True)
 @click.pass_context
 def evaluate(ctx, judgments_path, top_k):
-    """Evaluate retrieval quality against relevance judgments.
-
-    Reads a JSON file of relevance judgments and computes standard
-    IR metrics (Precision@K, Recall@K, MRR, nDCG, MAP).
-
-    \b
-    Judgment file format:
-        [{"query": "...", "relevant_ids": ["chunk_1", "chunk_5"]}]
-
-    \b
-    Examples:
-        python -m src.cli eval judgments.json
-        python -m src.cli eval judgments.json --top-k 10
-    """
+    """Evaluate retrieval quality against relevance judgments."""
     from .retrieval.evaluation import RetrievalEvaluator
 
     kb = _create_kb(
@@ -425,21 +346,7 @@ def evaluate(ctx, judgments_path, top_k):
               help="Use BM25+FAISS hybrid retrieval in the RAG pipeline.")
 @click.pass_context
 def chat(ctx, top_k, rerank, expand, hybrid):
-    """Interactive RAG-powered chat with the knowledge base.
-
-    Ask questions in natural language and receive answers grounded
-    in your ingested documents. Maintains conversation context for
-    follow-up questions. Requires ANTHROPIC_API_KEY to be set.
-
-    Use --hybrid to enable BM25+FAISS retrieval inside the RAG pipeline
-    for better performance on technical or exact-phrase queries.
-
-    \b
-    Examples:
-        python -m src.cli chat
-        python -m src.cli chat --hybrid
-        python -m src.cli chat --hybrid --rerank --expand synonym
-    """
+    """Interactive RAG-powered chat with the knowledge base."""
     from .rag.llm import ClaudeProvider
     from .rag.pipeline import RAGPipeline
 
@@ -449,16 +356,13 @@ def chat(ctx, top_k, rerank, expand, hybrid):
     )
 
     if kb.size == 0:
-        click.echo(click.style(
-            "Index is empty. Ingest documents first.", fg="yellow"
-        ))
+        click.echo(click.style("Index is empty. Ingest documents first.", fg="yellow"))
         raise SystemExit(1)
 
     llm = ClaudeProvider()
     if not llm.is_available():
         click.echo(click.style(
-            "ANTHROPIC_API_KEY not set. Export it to use the chat feature.",
-            fg="red",
+            "ANTHROPIC_API_KEY not set. Export it to use the chat feature.", fg="red",
         ))
         raise SystemExit(1)
 
