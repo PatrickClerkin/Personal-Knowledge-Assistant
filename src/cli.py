@@ -67,7 +67,10 @@ def ingest(ctx, path, recursive):
         click.echo(f"Ingesting: {path.name}")
         try:
             n_chunks = kb.ingest(path)
-            click.echo(click.style(f"  ✓ Created {n_chunks} chunks", fg="green"))
+            if n_chunks == 0:
+                click.echo(click.style("  ~ Skipped (file unchanged since last ingest)", fg="yellow"))
+            else:
+                click.echo(click.style(f"  ✓ Created {n_chunks} chunks", fg="green"))
         except ValueError as e:
             click.echo(click.style(f"  ✗ {e}", fg="red"))
             raise SystemExit(1)
@@ -78,6 +81,7 @@ def ingest(ctx, path, recursive):
         click.echo()
         click.echo(click.style("Ingestion complete:", bold=True))
         click.echo(f"  Files processed: {stats['files_processed']}")
+        click.echo(f"  Files skipped:   {stats['files_skipped']}")
         click.echo(f"  Total chunks:    {stats['total_chunks']}")
         if stats["files_failed"] > 0:
             click.echo(click.style(f"  Files failed:    {stats['files_failed']}", fg="red"))
@@ -163,6 +167,14 @@ def search(ctx, query, top_k, doc_id, show_content, rerank, expand, hybrid, enti
             f"[{result.rank}] Score: {result.score:.4f}", fg=score_colour, bold=True
         ))
         click.echo(f"    Source: {chunk.source_doc_title}")
+
+        # Show document version info from the registry
+        doc_info = kb.get_document_info(chunk.doc_id)
+        if doc_info:
+            click.echo(click.style(
+                f"    Last updated: {doc_info.updated_at[:10]}", dim=True
+            ))
+
         if chunk.page_number:
             click.echo(f"    Page: {chunk.page_number}")
         click.echo(f"    Chunk: {chunk.chunk_index + 1}/{chunk.total_chunks}")
@@ -206,7 +218,18 @@ def info(ctx):
             chunks = kb.get_document_chunks(doc_id)
             if chunks:
                 title = chunks[0].source_doc_title
-                click.echo(f"  [{doc_id[:8]}...] {title} ({len(chunks)} chunks)")
+                doc_info = kb.get_document_info(doc_id)
+                version_str = ""
+                if doc_info:
+                    version_str = (
+                        f"  ingested {doc_info.ingested_at[:10]}"
+                        + (f"  updated {doc_info.updated_at[:10]}"
+                           if doc_info.updated_at != doc_info.ingested_at else "")
+                    )
+                click.echo(
+                    f"  [{doc_id[:8]}...] {title} ({len(chunks)} chunks)"
+                    + click.style(version_str, dim=True)
+                )
 
 
 @cli.command()
