@@ -8,6 +8,7 @@ from .chunking.chunk_manager import ChunkManager
 from .embeddings.embedding_service import EmbeddingService
 from .storage.faiss_store import FAISSVectorStore
 from .storage.bm25_store import BM25Store
+from .storage.document_registry import DocumentRegistry, DocumentRecord
 from .storage.vector_store import SearchResult
 from .ner_extractor import NERExtractor
 from ..utils.logger import get_logger
@@ -27,22 +28,79 @@ class KnowledgeBase:
         self._store = FAISSVectorStore(embedding_dim=self._embedder.embedding_dimension)
         self._bm25 = BM25Store()
         self._ner = NERExtractor()
+        self._registry = DocumentRegistry()
         if self.index_path and (Path(str(self.index_path) + ".faiss").exists()):
             self.load()
             logger.info("Loaded existing index from %s (%d chunks)", self.index_path, self.size)
 
+    # ------------------------------------------------------------------
+    # Ingestion
+    # ------------------------------------------------------------------
+
     def ingest(self, file_path, show_progress=True) -> int:
+        """
+        Ingest a document into the knowledge base.
+
+        Behaviour
+        ---------
+        - **New document**: parse, chunk, embed, store, register.
+        - **Already ingested, file unchanged** (same SHA-256): skip and
+          return 0 so callers know nothing happened.
+        - **Already ingested, file changed**: delete old chunks, re-ingest
+          with fresh embeddings, update the registry record.
+
+        Returns
+        -------
+        int
+            Number of chunks added (0 if skipped as unchanged).
+        """
         file_path = Path(file_path)
+
+        # --- hash the file before doing any expensive work ---------------
+        file_hash = DocumentRegistry.hash_file(file_path)
+
+        # Derive the doc_id the same way DocumentManager would so we can
+        # look it up before parsing.
+        candidate_doc_id = file_path.stem
+
+        if self._registry.is_unchanged(candidate_doc_id, file_hash):
+            logger.info(
+                "Skipping '%s' — file is unchanged since last ingest.",
+                file_path.name,
+            )
+            return 0
+
+        # If the document existed before but the file has changed, remove
+        # the stale chunks so we don't end up with duplicates.
+        if self._registry.get(candidate_doc_id) is not None:
+            deleted = self.delete_document(candidate_doc_id)
+            logger.info(
+                "Re-ingesting '%s': removed %d stale chunks.",
+                file_path.name,
+                deleted,
+            )
+
+        # --- normal ingest path ------------------------------------------
         document = self._doc_manager.parse_document(file_path)
         chunks = self._chunker.chunk_document(document)
         if not chunks:
             logger.warning("No chunks created for %s", file_path.name)
             return 0
+
         self._ner.extract_from_chunks(chunks)
         embeddings = self._embedder.embed_chunks(chunks, show_progress=show_progress, store_in_chunks=True)
         self._store.add(chunks, embeddings)
         self._bm25.add(chunks)
-        logger.info("Ingested %s: %d chunks", file_path.name, len(chunks))
+
+        # --- register the document ---------------------------------------
+        self._registry.register(
+            doc_id=document.doc_id,
+            filename=file_path.name,
+            file_hash=file_hash,
+            chunk_count=len(chunks),
+        )
+
+        logger.info("Ingested '%s': %d chunks", file_path.name, len(chunks))
         if self.index_path:
             self.save()
         return len(chunks)
@@ -53,16 +111,46 @@ class KnowledgeBase:
             f for f in directory.rglob("*")
             if f.is_file() and self._doc_manager.get_parser(f) is not None
         ]
-        stats = {"files_processed": 0, "files_failed": 0, "total_chunks": 0, "errors": []}
+        stats = {
+            "files_processed": 0,
+            "files_skipped": 0,
+            "files_failed": 0,
+            "total_chunks": 0,
+            "errors": [],
+        }
         for fp in files:
             try:
                 n = self.ingest(fp, show_progress=show_progress)
-                stats["files_processed"] += 1
-                stats["total_chunks"] += n
+                if n == 0:
+                    stats["files_skipped"] += 1
+                else:
+                    stats["files_processed"] += 1
+                    stats["total_chunks"] += n
             except Exception as e:
                 stats["files_failed"] += 1
                 stats["errors"].append({"file": str(fp), "error": str(e)})
         return stats
+
+    # ------------------------------------------------------------------
+    # Document info
+    # ------------------------------------------------------------------
+
+    def get_document_info(self, doc_id: str) -> Optional[DocumentRecord]:
+        """
+        Return the registry record for *doc_id*, or None if not found.
+
+        The record contains: filename, file_hash, ingested_at, updated_at,
+        chunk_count.  Intended for display in CLI / web UI search results.
+        """
+        return self._registry.get(doc_id)
+
+    def list_documents(self) -> List[DocumentRecord]:
+        """Return all registered documents, sorted by most recently updated."""
+        return self._registry.all_records
+
+    # ------------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------------
 
     @property
     def supported_formats(self) -> List[str]:
@@ -131,7 +219,6 @@ class KnowledgeBase:
 
         all_results.sort(key=lambda r: r.score, reverse=True)
 
-        # Entity boosting / label filtering
         if entity_boost or label_filter:
             from ..retrieval.entity_reranker import boost_by_entities
             query_entities = self._ner.extract(query)
@@ -140,7 +227,6 @@ class KnowledgeBase:
                 result_pairs, query_entities,
                 label_filter=label_filter,
             )
-            # Rebuild SearchResult list preserving original SearchResult objects where possible
             chunk_to_result = {r.chunk.chunk_id: r for r in all_results}
             all_results = []
             for chunk, score in boosted_pairs:
@@ -158,9 +244,14 @@ class KnowledgeBase:
 
         return all_results
 
+    # ------------------------------------------------------------------
+    # Delete / persist
+    # ------------------------------------------------------------------
+
     def delete_document(self, doc_id: str) -> int:
         deleted = self._store.delete_document(doc_id)
         self._bm25.delete_document(doc_id)
+        self._registry.remove(doc_id)
         if self.index_path and deleted > 0:
             self.save()
         return deleted
@@ -171,6 +262,7 @@ class KnowledgeBase:
             raise ValueError("No save path specified")
         self._store.save(str(save_path))
         self._bm25.save(str(save_path))
+        self._registry.save(str(save_path))
 
     def load(self, path=None):
         load_path = Path(path) if path else self.index_path
@@ -178,10 +270,16 @@ class KnowledgeBase:
             raise ValueError("No load path specified")
         self._store.load(str(load_path))
         self._bm25.load(str(load_path))
+        self._registry.load(str(load_path))
 
     def clear(self):
         self._store.clear()
         self._bm25.clear()
+        self._registry = DocumentRegistry()
+
+    # ------------------------------------------------------------------
+    # Properties / dunder
+    # ------------------------------------------------------------------
 
     @property
     def size(self) -> int:
