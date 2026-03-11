@@ -3,6 +3,8 @@
 from .llm import LLMProvider, ClaudeProvider
 from .pipeline import RAGPipeline
 from .memory import ConversationMemory, ConversationTurn
+from .grounding import GroundingScorer, GroundingResult
+
 
 __all__ = [
     "LLMProvider",

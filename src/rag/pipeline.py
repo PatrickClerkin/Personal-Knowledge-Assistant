@@ -9,7 +9,8 @@ grounded in the knowledge base. The pipeline:
 2. Retrieves relevant chunks from the vector store.
 3. Formats them as context for the LLM.
 4. Generates an answer with source citations.
-5. Maintains a sliding-window conversation memory for follow-ups.
+5. Scores each source chunk for how well it grounds the answer.
+6. Maintains a sliding-window conversation memory for follow-ups.
 
 Design Pattern: Mediator Pattern — the pipeline coordinates
 between the KnowledgeBase, LLMProvider, and optional
@@ -21,6 +22,7 @@ from typing import List, Optional
 
 from .llm import LLMProvider, Message, LLMResponse
 from .memory import ConversationMemory, ConversationTurn
+from .grounding import GroundingScorer, GroundingResult
 from ..ingestion.knowledge_base import KnowledgeBase
 from ..ingestion.storage.vector_store import SearchResult
 from ..utils.logger import get_logger
@@ -56,12 +58,18 @@ class RAGResponse:
         query: The original query.
         rewritten_query: The standalone query used for retrieval,
             if different from the original.
+        grounding: Per-chunk grounding scores, sorted by support
+            strength. None if grounding is disabled.
+        confidence: Overall answer confidence score (0–1), derived
+            from grounding. None if grounding is disabled.
     """
     answer: str
     sources: List[SearchResult]
     llm_response: LLMResponse
     query: str
     rewritten_query: Optional[str] = None
+    grounding: Optional[List[GroundingResult]] = None
+    confidence: Optional[float] = None
 
 
 class RAGPipeline:
@@ -73,6 +81,7 @@ class RAGPipeline:
     Supports:
         - Single-turn and multi-turn conversations with sliding window.
         - Automatic query rewriting for coherent follow-up retrieval.
+        - Answer grounding: per-chunk confidence scores post-generation.
         - Optional reranking and query expansion.
         - Optional hybrid BM25+FAISS retrieval.
         - Configurable context window and system prompt.
@@ -84,6 +93,7 @@ class RAGPipeline:
         rag = RAGPipeline(knowledge_base=kb, llm_provider=llm)
         response = rag.query("What is dependency injection?")
         print(response.answer)
+        print(response.confidence)
     """
 
     def __init__(
@@ -97,6 +107,7 @@ class RAGPipeline:
         expand_query: Optional[str] = None,
         hybrid: bool = False,
         memory_window: int = 3,
+        ground_answer: bool = True,
     ):
         self.kb = knowledge_base
         self.llm = llm_provider
@@ -106,7 +117,9 @@ class RAGPipeline:
         self.rerank = rerank
         self.expand_query = expand_query
         self.hybrid = hybrid
+        self.ground_answer = ground_answer
         self.memory = ConversationMemory(window_size=memory_window)
+        self._grounder = GroundingScorer()
 
     def query(
         self,
@@ -121,13 +134,16 @@ class RAGPipeline:
         accurate retrieval, then answered in the context of the full
         conversation.
 
+        After generation, each source chunk is scored for how well it
+        grounds the answer (if ``ground_answer`` is enabled).
+
         Args:
             question: The user's question.
             top_k: Override the number of chunks to retrieve.
             include_history: Whether to use conversation history.
 
         Returns:
-            RAGResponse with the answer, sources, and metadata.
+            RAGResponse with the answer, sources, grounding, and metadata.
         """
         top_k = top_k or self.top_k
 
@@ -143,7 +159,7 @@ class RAGPipeline:
                     question[:50], rewritten_query[:50],
                 )
 
-        # Retrieve relevant context using the (possibly rewritten) query
+        # Retrieve relevant context
         if self.hybrid or self.rerank or self.expand_query:
             results = self.kb.advanced_search(
                 retrieval_query,
@@ -174,6 +190,18 @@ class RAGPipeline:
             history=history,
         )
 
+        # Score answer grounding against source chunks
+        grounding = None
+        confidence = None
+        if self.ground_answer and results:
+            grounding = self._grounder.score(llm_response.content, results)
+            confidence = self._grounder.overall_confidence(grounding)
+            logger.info(
+                "Answer confidence: %.3f (top chunk grounding: %.3f)",
+                confidence,
+                grounding[0].grounding_score if grounding else 0.0,
+            )
+
         # Record this turn in memory
         self.memory.add_turn(
             question=question,
@@ -194,6 +222,8 @@ class RAGPipeline:
             llm_response=llm_response,
             query=question,
             rewritten_query=rewritten_query,
+            grounding=grounding,
+            confidence=confidence,
         )
 
     def clear_history(self) -> None:
@@ -222,7 +252,6 @@ class RAGPipeline:
         if not self.llm.is_available():
             return None
 
-        # Only use the most recent turn for the rewrite prompt
         recent = self.memory.turns[-1]
         rewrite_prompt = (
             f"Previous question: {recent.question}\n"
