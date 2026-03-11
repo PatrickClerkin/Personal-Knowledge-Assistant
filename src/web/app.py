@@ -5,13 +5,15 @@ Provides HTTP endpoints for document ingestion, semantic search,
 knowledge base management, and RAG-powered Q&A.
 
 Endpoints:
-    GET  /api/health          - Health check
-    GET  /api/info            - Index statistics
-    POST /api/search          - Semantic search
-    POST /api/ingest          - Ingest a document (file upload)
-    POST /api/chat            - RAG-powered question answering
-    GET  /api/documents       - List indexed documents
-    DELETE /api/documents/<id> - Delete a document
+    GET  /api/health              - Health check
+    GET  /api/info                - Index statistics
+    POST /api/search              - Semantic search
+    POST /api/ingest              - Ingest a document (file upload)
+    POST /api/chat                - RAG-powered question answering
+    GET  /api/documents           - List indexed documents
+    DELETE /api/documents/<id>    - Delete a document
+    GET  /dashboard               - Evaluation dashboard UI
+    GET  /api/evaluation/run      - Run IR evaluation and return metrics
 
 Usage:
     python -m src.web.app
@@ -24,6 +26,7 @@ from pathlib import Path
 from flask import Flask, request, jsonify, render_template, send_from_directory
 
 from ..ingestion.knowledge_base import KnowledgeBase
+from ..evaluation.evaluator import EvaluationSuite
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -83,6 +86,12 @@ def get_rag():
 def index():
     """Serve the main frontend page."""
     return render_template("index.html")
+
+
+@app.route("/dashboard")
+def dashboard():
+    """Serve the evaluation dashboard page."""
+    return render_template("dashboard.html")
 
 
 # ─── API Endpoints ──────────────────────────────────────────────────
@@ -247,6 +256,28 @@ def delete_document(doc_id):
     if deleted > 0:
         return jsonify({"deleted_chunks": deleted, "doc_id": doc_id})
     return jsonify({"error": "Document not found"}), 404
+
+
+@app.route("/api/evaluation/run")
+def run_evaluation():
+    """Run IR evaluation and return metrics as JSON.
+
+    Query params:
+        path: Path to test queries JSON file
+              (default: data/eval/test_queries.json)
+    """
+    queries_path = request.args.get("path", "data/eval/test_queries.json")
+    kb = get_kb()
+    suite = EvaluationSuite(knowledge_base=kb, top_k=5)
+
+    try:
+        report = suite.run(queries_path)
+        return jsonify(report.to_dict())
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        logger.error("Evaluation error: %s", e)
+        return jsonify({"error": str(e)}), 500
 
 
 def create_app() -> Flask:

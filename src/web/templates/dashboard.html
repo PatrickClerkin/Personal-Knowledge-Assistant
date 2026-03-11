@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PKA — Evaluation Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    h1 { font-size: 1.6rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .subtitle { color: #94a3b8; font-size: 0.9rem; margin-bottom: 2rem; }
+
+    .controls {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      margin-bottom: 2rem;
+      flex-wrap: wrap;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      min-width: 280px;
+      padding: 0.55rem 0.9rem;
+      background: #1e2330;
+      border: 1px solid #2d3748;
+      border-radius: 6px;
+      color: #e2e8f0;
+      font-size: 0.9rem;
+    }
+
+    button {
+      padding: 0.55rem 1.25rem;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #2563eb; }
+    button:disabled { background: #374151; cursor: not-allowed; }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .stat-card {
+      background: #1e2330;
+      border: 1px solid #2d3748;
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+    }
+    .stat-card .label { font-size: 0.78rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-card .value { font-size: 2rem; font-weight: 700; margin-top: 0.25rem; }
+    .stat-card .value.good  { color: #34d399; }
+    .stat-card .value.mid   { color: #fbbf24; }
+    .stat-card .value.poor  { color: #f87171; }
+
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    @media (max-width: 768px) { .charts-grid { grid-template-columns: 1fr; } }
+
+    .chart-card {
+      background: #1e2330;
+      border: 1px solid #2d3748;
+      border-radius: 10px;
+      padding: 1.25rem;
+    }
+    .chart-card h2 { font-size: 0.9rem; color: #94a3b8; margin-bottom: 1rem; }
+
+    .table-card {
+      background: #1e2330;
+      border: 1px solid #2d3748;
+      border-radius: 10px;
+      padding: 1.25rem;
+      overflow-x: auto;
+    }
+    .table-card h2 { font-size: 0.9rem; color: #94a3b8; margin-bottom: 1rem; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; padding: 0.5rem 0.75rem; color: #64748b; font-weight: 500; border-bottom: 1px solid #2d3748; }
+    td { padding: 0.6rem 0.75rem; border-bottom: 1px solid #1a1f2e; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #252c3d; }
+
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge.good  { background: #064e3b; color: #34d399; }
+    .badge.mid   { background: #451a03; color: #fbbf24; }
+    .badge.poor  { background: #450a0a; color: #f87171; }
+
+    #status {
+      margin-bottom: 1.5rem;
+      padding: 0.75rem 1rem;
+      border-radius: 6px;
+      font-size: 0.88rem;
+      display: none;
+    }
+    #status.info    { background: #1e3a5f; color: #93c5fd; display: block; }
+    #status.error   { background: #450a0a; color: #fca5a5; display: block; }
+  </style>
+</head>
+<body>
+
+  <h1>📊 Evaluation Dashboard</h1>
+  <p class="subtitle">IR metrics for the Personal Knowledge Assistant retrieval pipeline</p>
+
+  <div class="controls">
+    <input type="text" id="queryPath" value="data/eval/test_queries.json"
+           placeholder="Path to test_queries.json" />
+    <button id="runBtn" onclick="runEvaluation()">▶ Run Evaluation</button>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="stat-grid" id="statGrid" style="display:none">
+    <div class="stat-card">
+      <div class="label">Queries Evaluated</div>
+      <div class="value" id="numQueries" style="color:#e2e8f0">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Mean Precision@5</div>
+      <div class="value" id="p5">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Mean MRR</div>
+      <div class="value" id="mrr">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Mean nDCG@5</div>
+      <div class="value" id="ndcg">—</div>
+    </div>
+  </div>
+
+  <div class="charts-grid" id="chartsGrid" style="display:none">
+    <div class="chart-card">
+      <h2>METRIC AVERAGES</h2>
+      <canvas id="barChart"></canvas>
+    </div>
+    <div class="chart-card">
+      <h2>PER-QUERY nDCG@5</h2>
+      <canvas id="lineChart"></canvas>
+    </div>
+  </div>
+
+  <div class="table-card" id="tableCard" style="display:none">
+    <h2>PER-QUERY BREAKDOWN</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Query</th>
+          <th>P@5</th>
+          <th>MRR</th>
+          <th>nDCG@5</th>
+          <th>Grade</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+<script>
+  let barChart = null;
+  let lineChart = null;
+
+  function colorClass(v) {
+    if (v >= 0.6) return "good";
+    if (v >= 0.3) return "mid";
+    return "poor";
+  }
+
+  function setStatus(msg, type) {
+    const el = document.getElementById("status");
+    el.textContent = msg;
+    el.className = type;
+  }
+
+  function grade(p5, mrr, ndcg) {
+    const avg = (p5 + mrr + ndcg) / 3;
+    return colorClass(avg);
+  }
+
+  async function runEvaluation() {
+    const btn = document.getElementById("runBtn");
+    const path = document.getElementById("queryPath").value.trim();
+    btn.disabled = true;
+    btn.textContent = "Running…";
+    setStatus("Running evaluation — this may take a few seconds…", "info");
+
+    // Hide results sections while running
+    ["statGrid", "chartsGrid", "tableCard"].forEach(id => {
+      document.getElementById(id).style.display = "none";
+    });
+
+    try {
+      const res = await fetch(`/api/evaluation/run?path=${encodeURIComponent(path)}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        setStatus(`Error: ${data.error}`, "error");
+        return;
+      }
+
+      renderStats(data);
+      renderCharts(data);
+      renderTable(data);
+
+      document.getElementById("statGrid").style.display = "grid";
+      document.getElementById("chartsGrid").style.display = "grid";
+      document.getElementById("tableCard").style.display = "block";
+      setStatus(`✓ Evaluated ${data.num_queries} queries successfully.`, "info");
+
+    } catch (err) {
+      setStatus(`Request failed: ${err.message}`, "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "▶ Run Evaluation";
+    }
+  }
+
+  function renderStats(data) {
+    document.getElementById("numQueries").textContent = data.num_queries;
+    for (const [id, val] of [
+      ["p5", data.mean_precision_at_5],
+      ["mrr", data.mean_mrr],
+      ["ndcg", data.mean_ndcg_at_5],
+    ]) {
+      const el = document.getElementById(id);
+      el.textContent = val.toFixed(3);
+      el.className = `value ${colorClass(val)}`;
+    }
+  }
+
+  function renderCharts(data) {
+    const chartDefaults = {
+      color: "#94a3b8",
+      borderColor: "#2d3748",
+    };
+
+    // Bar chart — aggregate metrics
+    if (barChart) barChart.destroy();
+    barChart = new Chart(document.getElementById("barChart"), {
+      type: "bar",
+      data: {
+        labels: ["Precision@5", "MRR", "nDCG@5"],
+        datasets: [{
+          label: "Score",
+          data: [data.mean_precision_at_5, data.mean_mrr, data.mean_ndcg_at_5],
+          backgroundColor: ["#3b82f6", "#8b5cf6", "#10b981"],
+          borderRadius: 6,
+        }],
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          y: {
+            min: 0, max: 1,
+            ticks: { color: "#94a3b8" },
+            grid: { color: "#1a1f2e" },
+          },
+          x: { ticks: { color: "#94a3b8" }, grid: { display: false } },
+        },
+      },
+    });
+
+    // Line chart — per-query nDCG
+    const labels = data.query_results.map((r, i) => `Q${i + 1}`);
+    const ndcgVals = data.query_results.map(r => r.ndcg_at_5);
+
+    if (lineChart) lineChart.destroy();
+    lineChart = new Chart(document.getElementById("lineChart"), {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          label: "nDCG@5",
+          data: ndcgVals,
+          borderColor: "#10b981",
+          backgroundColor: "rgba(16,185,129,0.1)",
+          pointBackgroundColor: "#10b981",
+          tension: 0.3,
+          fill: true,
+        }],
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          y: {
+            min: 0, max: 1,
+            ticks: { color: "#94a3b8" },
+            grid: { color: "#1a1f2e" },
+          },
+          x: { ticks: { color: "#94a3b8" }, grid: { display: false } },
+        },
+      },
+    });
+  }
+
+  function renderTable(data) {
+    const tbody = document.getElementById("tableBody");
+    tbody.innerHTML = "";
+    data.query_results.forEach((r, i) => {
+      const g = grade(r.precision_at_5, r.mrr, r.ndcg_at_5);
+      const label = g === "good" ? "Strong" : g === "mid" ? "Partial" : "Weak";
+      tbody.innerHTML += `
+        <tr>
+          <td>${i + 1}</td>
+          <td title="${r.query}">${r.query.length > 55 ? r.query.slice(0, 55) + "…" : r.query}</td>
+          <td>${r.precision_at_5.toFixed(3)}</td>
+          <td>${r.mrr.toFixed(3)}</td>
+          <td>${r.ndcg_at_5.toFixed(3)}</td>
+          <td><span class="badge ${g}">${label}</span></td>
+        </tr>`;
+    });
+  }
+</script>
+</body>
+</html>
