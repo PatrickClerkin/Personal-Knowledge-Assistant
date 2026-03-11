@@ -4,10 +4,12 @@ Retrieval-Augmented Generation pipeline.
 Combines the retrieval system with an LLM to answer questions
 grounded in the knowledge base. The pipeline:
 
-1. Retrieves relevant chunks from the vector store.
-2. Formats them as context for the LLM.
-3. Generates an answer with source citations.
-4. Maintains conversation history for follow-up questions.
+1. Optionally rewrites the query using conversation history so
+   follow-up questions ("tell me more about that") resolve correctly.
+2. Retrieves relevant chunks from the vector store.
+3. Formats them as context for the LLM.
+4. Generates an answer with source citations.
+5. Maintains a sliding-window conversation memory for follow-ups.
 
 Design Pattern: Mediator Pattern — the pipeline coordinates
 between the KnowledgeBase, LLMProvider, and optional
@@ -18,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from .llm import LLMProvider, Message, LLMResponse
+from .memory import ConversationMemory, ConversationTurn
 from ..ingestion.knowledge_base import KnowledgeBase
 from ..ingestion.storage.vector_store import SearchResult
 from ..utils.logger import get_logger
@@ -25,7 +28,6 @@ from ..utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-# System prompt for grounded question answering
 _DEFAULT_SYSTEM_PROMPT = """You are a knowledgeable assistant that answers questions based on provided context from a document knowledge base.
 
 Rules:
@@ -34,6 +36,13 @@ Rules:
 3. Be concise but thorough. Prefer direct answers over verbose explanations.
 4. If the question requires information not in the context, acknowledge the limitation and suggest what additional documents might help.
 5. When multiple chunks provide relevant information, synthesise them into a coherent answer."""
+
+_REWRITE_SYSTEM_PROMPT = """You are a query rewriting assistant. Your only job is to rewrite a follow-up question into a fully self-contained question that can be understood without any conversation history.
+
+Rules:
+1. Output ONLY the rewritten question. No explanation, no preamble.
+2. If the question is already self-contained, return it unchanged.
+3. Preserve the user's intent exactly — do not add assumptions."""
 
 
 @dataclass
@@ -45,11 +54,14 @@ class RAGResponse:
         sources: Retrieved chunks used as context.
         llm_response: Raw LLM response with usage stats.
         query: The original query.
+        rewritten_query: The standalone query used for retrieval,
+            if different from the original.
     """
     answer: str
     sources: List[SearchResult]
     llm_response: LLMResponse
     query: str
+    rewritten_query: Optional[str] = None
 
 
 class RAGPipeline:
@@ -59,7 +71,8 @@ class RAGPipeline:
     to answer questions grounded in the knowledge base.
 
     Supports:
-        - Single-turn and multi-turn conversations.
+        - Single-turn and multi-turn conversations with sliding window.
+        - Automatic query rewriting for coherent follow-up retrieval.
         - Optional reranking and query expansion.
         - Optional hybrid BM25+FAISS retrieval.
         - Configurable context window and system prompt.
@@ -83,6 +96,7 @@ class RAGPipeline:
         rerank: bool = False,
         expand_query: Optional[str] = None,
         hybrid: bool = False,
+        memory_window: int = 3,
     ):
         self.kb = knowledge_base
         self.llm = llm_provider
@@ -92,7 +106,7 @@ class RAGPipeline:
         self.rerank = rerank
         self.expand_query = expand_query
         self.hybrid = hybrid
-        self._history: List[Message] = []
+        self.memory = ConversationMemory(window_size=memory_window)
 
     def query(
         self,
@@ -102,41 +116,56 @@ class RAGPipeline:
     ) -> RAGResponse:
         """Answer a question using retrieval-augmented generation.
 
+        If conversation history exists and ``include_history`` is True,
+        the question is first rewritten into a self-contained form for
+        accurate retrieval, then answered in the context of the full
+        conversation.
+
         Args:
             question: The user's question.
             top_k: Override the number of chunks to retrieve.
-            include_history: Whether to include conversation history.
+            include_history: Whether to use conversation history.
 
         Returns:
             RAGResponse with the answer, sources, and metadata.
         """
         top_k = top_k or self.top_k
 
-        # Retrieve relevant context
+        # Rewrite follow-up queries to be self-contained for retrieval
+        rewritten_query = None
+        retrieval_query = question
+        if include_history and not self.memory.is_empty():
+            rewritten_query = self._rewrite_query(question)
+            if rewritten_query and rewritten_query != question:
+                retrieval_query = rewritten_query
+                logger.info(
+                    "Query rewritten: '%s' -> '%s'",
+                    question[:50], rewritten_query[:50],
+                )
+
+        # Retrieve relevant context using the (possibly rewritten) query
         if self.hybrid or self.rerank or self.expand_query:
             results = self.kb.advanced_search(
-                question,
+                retrieval_query,
                 top_k=top_k,
                 rerank=self.rerank,
                 expand_query=self.expand_query,
                 hybrid=self.hybrid,
             )
         else:
-            results = self.kb.search(question, top_k=top_k)
+            results = self.kb.search(retrieval_query, top_k=top_k)
 
         logger.info(
             "Retrieved %d chunks for query: '%s'",
-            len(results), question[:50],
+            len(results), retrieval_query[:50],
         )
 
-        # Format context for the LLM
+        # Format context and build prompt
         context = self._format_context(results)
-
-        # Build the augmented prompt
         prompt = self._build_prompt(question, context)
 
-        # Prepare conversation history
-        history = self._history if include_history else None
+        # Pass sliding-window history to the LLM
+        history = self.memory.get_messages() if include_history else None
 
         # Generate answer
         llm_response = self.llm.generate(
@@ -145,10 +174,11 @@ class RAGPipeline:
             history=history,
         )
 
-        # Update conversation history
-        self._history.append(Message(role="user", content=question))
-        self._history.append(
-            Message(role="assistant", content=llm_response.content)
+        # Record this turn in memory
+        self.memory.add_turn(
+            question=question,
+            answer=llm_response.content,
+            rewritten_query=rewritten_query,
         )
 
         logger.info(
@@ -163,24 +193,58 @@ class RAGPipeline:
             sources=results,
             llm_response=llm_response,
             query=question,
+            rewritten_query=rewritten_query,
         )
 
     def clear_history(self) -> None:
-        """Clear conversation history for a fresh start."""
-        self._history.clear()
+        """Clear conversation memory for a fresh start."""
+        self.memory.clear()
         logger.debug("Conversation history cleared.")
 
     @property
     def conversation_length(self) -> int:
-        """Number of messages in conversation history."""
-        return len(self._history)
+        """Number of turns recorded in memory."""
+        return self.memory.total_turns
+
+    def _rewrite_query(self, question: str) -> Optional[str]:
+        """Rewrite a follow-up question to be self-contained.
+
+        Uses the last turn of conversation history to give the LLM
+        just enough context to resolve references like "it", "that",
+        "the previous topic", etc.
+
+        Args:
+            question: The user's raw follow-up question.
+
+        Returns:
+            A rewritten, self-contained question, or None on failure.
+        """
+        if not self.llm.is_available():
+            return None
+
+        # Only use the most recent turn for the rewrite prompt
+        recent = self.memory.turns[-1]
+        rewrite_prompt = (
+            f"Previous question: {recent.question}\n"
+            f"Previous answer summary: {recent.answer[:300]}\n\n"
+            f"Follow-up question to rewrite: {question}"
+        )
+
+        try:
+            response = self.llm.generate(
+                prompt=rewrite_prompt,
+                system=_REWRITE_SYSTEM_PROMPT,
+                max_tokens=128,
+                temperature=0.0,
+            )
+            rewritten = response.content.strip()
+            return rewritten if rewritten else None
+        except Exception as e:
+            logger.warning("Query rewrite failed, using original: %s", e)
+            return None
 
     def _format_context(self, results: List[SearchResult]) -> str:
-        """Format retrieved chunks into a context string for the LLM.
-
-        Includes source metadata and truncates to the maximum
-        context length.
-        """
+        """Format retrieved chunks into a context string for the LLM."""
         context_parts = []
         total_chars = 0
 
