@@ -145,12 +145,6 @@ class TestEntityTexts:
 
 class TestBoostByEntities:
 
-    def _results(self, entities_list):
-        return [
-            (_make_chunk(entities=ents), float(i + 1))
-            for i, ents in enumerate(entities_list)
-        ]
-
     def test_no_query_entities_preserves_order(self):
         results = [(_make_chunk(), 0.9), (_make_chunk(), 0.5)]
         out = boost_by_entities(results, query_entities=[])
@@ -177,7 +171,8 @@ class TestBoostByEntities:
         chunk_one = _make_chunk(entities=[{"text": "Alice", "label": "PERSON"}])
         chunk_none = _make_chunk(entities=[])
 
-        results = [(chunk_none, 1.0), (chunk_one, 0.5), (chunk_two, 0.3)]
+        # Equal base scores so only entity overlap determines final ranking
+        results = [(chunk_none, 0.5), (chunk_one, 0.5), (chunk_two, 0.5)]
         out = boost_by_entities(results, query_ents, boost_weight=0.2)
 
         scores = {id(chunk): score for chunk, score in out}
