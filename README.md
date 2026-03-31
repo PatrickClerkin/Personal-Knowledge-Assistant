@@ -1,6 +1,6 @@
 # Personal Knowledge Assistant
 
-A document ingestion and semantic search pipeline with retrieval-augmented generation (RAG), built as a first-year Computer Science project demonstrating advanced software design principles.
+A document ingestion and semantic search pipeline with retrieval-augmented generation (RAG), built as a final year Computer Science project demonstrating advanced software design principles.
 
 ## Architecture
 
