@@ -195,11 +195,11 @@ class RAGPipeline:
         confidence = None
         if self.ground_answer and results:
             grounding = self._grounder.score(llm_response.content, results)
-            confidence = self._grounder.overall_confidence(grounding)
+            confidence = grounding.overall_confidence
             logger.info(
                 "Answer confidence: %.3f (top chunk grounding: %.3f)",
                 confidence,
-                grounding[0].grounding_score if grounding else 0.0,
+                grounding.chunk_scores[0].grounding_score if grounding.chunk_scores else 0.0,
             )
 
         # Record this turn in memory
