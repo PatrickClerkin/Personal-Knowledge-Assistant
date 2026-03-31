@@ -14,6 +14,8 @@ Endpoints:
     DELETE /api/documents/<id>    - Delete a document
     GET  /dashboard               - Evaluation dashboard UI
     GET  /api/evaluation/run      - Run IR evaluation and return metrics
+    GET  /graph                   - Knowledge graph visualisation UI
+    GET  /api/graph               - Knowledge graph data as JSON
 
 Usage:
     python -m src.web.app
@@ -27,6 +29,8 @@ from flask import Flask, request, jsonify, render_template, send_from_directory
 
 from ..ingestion.knowledge_base import KnowledgeBase
 from ..evaluation.evaluator import EvaluationSuite
+from ..knowledge_graph.graph_builder import GraphBuilder
+from ..knowledge_graph.graph_store import GraphStore
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -92,6 +96,12 @@ def index():
 def dashboard():
     """Serve the evaluation dashboard page."""
     return render_template("dashboard.html")
+
+
+@app.route("/graph")
+def graph_view():
+    """Serve the knowledge graph visualisation page."""
+    return render_template("graph.html")
 
 
 # ─── API Endpoints ──────────────────────────────────────────────────
@@ -198,7 +208,8 @@ def chat():
         {"question": "...", "top_k": 5}
 
     Returns:
-        {"answer": "...", "sources": [...]}
+        {"answer": "...", "sources": [...], "usage": {...},
+         "confidence": 0.85, "cache_hit": false}
     """
     rag = get_rag()
     if rag is None:
@@ -227,6 +238,9 @@ def chat():
                 for r in response.sources
             ],
             "usage": response.llm_response.usage,
+            "confidence": response.confidence,
+            "cache_hit": response.cache_hit,
+            "retrieval_attempts": response.retrieval_attempts,
         })
     except Exception as e:
         logger.error("Chat error: %s", e)
@@ -278,6 +292,40 @@ def run_evaluation():
     except Exception as e:
         logger.error("Evaluation error: %s", e)
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/graph")
+def get_graph():
+    """Build or return the cached knowledge graph as JSON.
+
+    Query params:
+        rebuild: If 'true', forces a full rebuild from the index.
+    """
+    store = GraphStore()
+    rebuild = request.args.get("rebuild", "false").lower() == "true"
+
+    if rebuild or not store.exists():
+        kb = get_kb()
+        all_chunks = []
+        for doc_id in kb.document_ids:
+            all_chunks.extend(kb.get_document_chunks(doc_id))
+
+        if not all_chunks:
+            return jsonify({
+                "nodes": [], "links": [], "num_nodes": 0, "num_edges": 0
+            })
+
+        builder = GraphBuilder()
+        graph = builder.build(all_chunks)
+        store.save(graph)
+    else:
+        graph = store.load()
+        if graph is None:
+            return jsonify({
+                "nodes": [], "links": [], "num_nodes": 0, "num_edges": 0
+            })
+
+    return jsonify(store.to_dict(graph))
 
 
 def create_app() -> Flask:

@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PKA — Knowledge Graph</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    header {
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #1e2330;
+      flex-shrink: 0;
+    }
+
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    header .subtitle { font-size: 0.8rem; color: #64748b; margin-top: 0.1rem; }
+
+    .controls {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    button {
+      padding: 0.4rem 1rem;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #2563eb; }
+    button.secondary {
+      background: #1e2330;
+      border: 1px solid #2d3748;
+      color: #94a3b8;
+    }
+    button.secondary:hover { background: #252c3d; }
+
+    #stats {
+      font-size: 0.78rem;
+      color: #64748b;
+      margin-right: 0.5rem;
+    }
+
+    #canvas {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    svg { width: 100%; height: 100%; }
+
+    .node circle {
+      stroke-width: 2px;
+      cursor: pointer;
+      transition: r 0.15s;
+    }
+    .node circle:hover { stroke-width: 3px; }
+    .node text {
+      font-size: 10px;
+      fill: #cbd5e1;
+      pointer-events: none;
+      text-anchor: middle;
+      dominant-baseline: central;
+    }
+
+    .link {
+      stroke: #2d3748;
+      stroke-linecap: round;
+    }
+
+    #tooltip {
+      position: absolute;
+      background: #1e2330;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      padding: 0.6rem 0.9rem;
+      font-size: 0.8rem;
+      pointer-events: none;
+      display: none;
+      max-width: 220px;
+      z-index: 10;
+    }
+    #tooltip .name { font-weight: 600; color: #e2e8f0; margin-bottom: 0.25rem; }
+    #tooltip .detail { color: #94a3b8; font-size: 0.75rem; }
+
+    #status {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #64748b;
+      font-size: 0.9rem;
+    }
+
+    /* Entity label colour coding */
+    .label-PERSON    { fill: #60a5fa; }
+    .label-ORG       { fill: #34d399; }
+    .label-GPE       { fill: #f59e0b; }
+    .label-LOC       { fill: #a78bfa; }
+    .label-PRODUCT   { fill: #fb7185; }
+    .label-EVENT     { fill: #38bdf8; }
+    .label-NORP      { fill: #e879f9; }
+    .label-default   { fill: #94a3b8; }
+
+    .legend {
+      position: absolute;
+      bottom: 1rem;
+      left: 1rem;
+      background: #1e2330;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      padding: 0.6rem 0.9rem;
+      font-size: 0.75rem;
+    }
+    .legend-title { color: #64748b; margin-bottom: 0.4rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .legend-item { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem; color: #94a3b8; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🕸 Knowledge Graph</h1>
+    <div class="subtitle">Entity co-occurrence across your document corpus</div>
+  </div>
+  <div class="controls">
+    <span id="stats"></span>
+    <button class="secondary" onclick="resetZoom()">Reset View</button>
+    <button onclick="loadGraph(true)">↺ Rebuild</button>
+    <button onclick="loadGraph(false)">Load Graph</button>
+  </div>
+</header>
+
+<div id="canvas">
+  <div id="status">Click "Load Graph" to visualise your knowledge graph.</div>
+  <div id="tooltip">
+    <div class="name" id="tt-name"></div>
+    <div class="detail" id="tt-detail"></div>
+  </div>
+  <div class="legend">
+    <div class="legend-title">Entity Types</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#60a5fa"></div>Person</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#34d399"></div>Organisation</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>Location (GPE)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#a78bfa"></div>Location</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#fb7185"></div>Product</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#94a3b8"></div>Other</div>
+  </div>
+</div>
+
+<script>
+  const labelColours = {
+    PERSON:  "#60a5fa",
+    ORG:     "#34d399",
+    GPE:     "#f59e0b",
+    LOC:     "#a78bfa",
+    PRODUCT: "#fb7185",
+    EVENT:   "#38bdf8",
+    NORP:    "#e879f9",
+  };
+
+  function nodeColour(label) {
+    return labelColours[label] || "#94a3b8";
+  }
+
+  function nodeRadius(degree, count) {
+    return Math.max(5, Math.min(24, 5 + Math.sqrt(degree) * 2 + Math.log1p(count)));
+  }
+
+  let svg, simulation, zoom;
+
+  function resetZoom() {
+    if (svg) svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity);
+  }
+
+  async function loadGraph(rebuild = false) {
+    document.getElementById("status").textContent = rebuild
+      ? "Rebuilding graph — this may take a moment…"
+      : "Loading graph…";
+    document.getElementById("stats").textContent = "";
+
+    // Clear old graph
+    d3.select("#canvas svg").remove();
+
+    try {
+      const url = rebuild ? "/api/graph?rebuild=true" : "/api/graph";
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (!data.nodes || data.nodes.length === 0) {
+        document.getElementById("status").textContent =
+          "No entities found. Ingest some documents first, then rebuild.";
+        return;
+      }
+
+      document.getElementById("status").textContent = "";
+      document.getElementById("stats").textContent =
+        `${data.num_nodes} entities · ${data.num_edges} connections`;
+
+      renderGraph(data);
+    } catch (err) {
+      document.getElementById("status").textContent = `Error: ${err.message}`;
+    }
+  }
+
+  function renderGraph(data) {
+    const container = document.getElementById("canvas");
+    const W = container.clientWidth;
+    const H = container.clientHeight;
+    const tooltip = document.getElementById("tooltip");
+
+    svg = d3.select("#canvas").append("svg");
+    const g = svg.append("g");
+
+    zoom = d3.zoom()
+      .scaleExtent([0.1, 4])
+      .on("zoom", e => g.attr("transform", e.transform));
+    svg.call(zoom);
+
+    // Scale edge thickness by weight
+    const maxWeight = d3.max(data.links, l => l.weight) || 1;
+    const edgeScale = d3.scaleLinear().domain([1, maxWeight]).range([0.5, 4]);
+
+    // Links
+    const link = g.append("g").selectAll("line")
+      .data(data.links)
+      .join("line")
+      .attr("class", "link")
+      .attr("stroke-width", d => edgeScale(d.weight))
+      .attr("stroke-opacity", 0.5);
+
+    // Nodes
+    const node = g.append("g").selectAll("g")
+      .data(data.nodes)
+      .join("g")
+      .attr("class", "node")
+      .call(d3.drag()
+        .on("start", (event, d) => {
+          if (!event.active) simulation.alphaTarget(0.3).restart();
+          d.fx = d.x; d.fy = d.y;
+        })
+        .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
+        .on("end", (event, d) => {
+          if (!event.active) simulation.alphaTarget(0);
+          d.fx = null; d.fy = null;
+        })
+      );
+
+    node.append("circle")
+      .attr("r", d => nodeRadius(d.degree, d.count))
+      .attr("fill", d => nodeColour(d.label))
+      .attr("fill-opacity", 0.85)
+      .attr("stroke", d => nodeColour(d.label))
+      .attr("stroke-opacity", 0.4)
+      .on("mouseover", (event, d) => {
+        tooltip.style.display = "block";
+        document.getElementById("tt-name").textContent = d.id;
+        document.getElementById("tt-detail").innerHTML =
+          `Type: ${d.label}<br>` +
+          `Appears in: ${d.count} chunk(s)<br>` +
+          `Connections: ${d.degree}<br>` +
+          `Sources: ${(d.sources || []).slice(0, 3).join(", ")}`;
+      })
+      .on("mousemove", event => {
+        tooltip.style.left = (event.offsetX + 14) + "px";
+        tooltip.style.top  = (event.offsetY - 10) + "px";
+      })
+      .on("mouseout", () => { tooltip.style.display = "none"; });
+
+    node.append("text")
+      .text(d => d.id.length > 14 ? d.id.slice(0, 12) + "…" : d.id)
+      .attr("dy", d => nodeRadius(d.degree, d.count) + 10);
+
+    // Force simulation
+    simulation = d3.forceSimulation(data.nodes)
+      .force("link", d3.forceLink(data.links)
+        .id(d => d.id)
+        .distance(d => 80 + 30 / (d.weight || 1))
+      )
+      .force("charge", d3.forceManyBody().strength(-120))
+      .force("center", d3.forceCenter(W / 2, H / 2))
+      .force("collision", d3.forceCollide().radius(d => nodeRadius(d.degree, d.count) + 4))
+      .on("tick", () => {
+        link
+          .attr("x1", d => d.source.x)
+          .attr("y1", d => d.source.y)
+          .attr("x2", d => d.target.x)
+          .attr("y2", d => d.target.y);
+        node.attr("transform", d => `translate(${d.x},${d.y})`);
+      });
+  }
+</script>
+</body>
+</html>
