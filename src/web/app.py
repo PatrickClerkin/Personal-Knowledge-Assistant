@@ -18,6 +18,8 @@ Endpoints:
     GET  /api/graph               - Knowledge graph data as JSON
     GET  /study                   - Study mode UI
     POST /api/study/generate      - Generate a personalised study path
+    GET  /quiz                    - Quiz mode UI
+    POST /api/quiz/generate       - Generate a quiz on a topic
 
 Usage:
     python -m src.web.app
@@ -34,6 +36,7 @@ from ..evaluation.evaluator import EvaluationSuite
 from ..knowledge_graph.graph_builder import GraphBuilder
 from ..knowledge_graph.graph_store import GraphStore
 from ..study.path_generator import PathGenerator
+from ..study.quiz_generator import QuizGenerator
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -120,6 +123,12 @@ def graph_view():
 def study_view():
     """Serve the study mode page."""
     return render_template("study.html")
+
+
+@app.route("/quiz")
+def quiz_view():
+    """Serve the quiz mode page."""
+    return render_template("quiz.html")
 
 
 # ─── API Endpoints ──────────────────────────────────────────────────
@@ -397,6 +406,42 @@ def generate_study_path():
 
     except Exception as e:
         logger.error("Study path generation error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/quiz/generate", methods=["POST"])
+def generate_quiz():
+    """Generate a quiz on a topic from knowledge base content.
+
+    Request body:
+        {"topic": "neural networks"}
+
+    Returns:
+        Quiz as JSON with MCQ and short answer questions.
+    """
+    rag = get_rag()
+    if rag is None:
+        return jsonify({
+            "error": "ANTHROPIC_API_KEY not set. Quiz mode requires an API key."
+        }), 503
+
+    data = request.get_json()
+    if not data or "topic" not in data:
+        return jsonify({"error": "Missing 'topic' field"}), 400
+
+    topic = data["topic"].strip()
+    if not topic:
+        return jsonify({"error": "Topic cannot be empty"}), 400
+
+    try:
+        generator = QuizGenerator(
+            knowledge_base=get_kb(),
+            llm_provider=rag.llm,
+        )
+        quiz = generator.generate(topic)
+        return jsonify(quiz.to_dict())
+    except Exception as e:
+        logger.error("Quiz generation error: %s", e)
         return jsonify({"error": str(e)}), 500
 
 
