@@ -16,6 +16,8 @@ Endpoints:
     GET  /api/evaluation/run      - Run IR evaluation and return metrics
     GET  /graph                   - Knowledge graph visualisation UI
     GET  /api/graph               - Knowledge graph data as JSON
+    GET  /study                   - Study mode UI
+    POST /api/study/generate      - Generate a personalised study path
 
 Usage:
     python -m src.web.app
@@ -31,6 +33,7 @@ from ..ingestion.knowledge_base import KnowledgeBase
 from ..evaluation.evaluator import EvaluationSuite
 from ..knowledge_graph.graph_builder import GraphBuilder
 from ..knowledge_graph.graph_store import GraphStore
+from ..study.path_generator import PathGenerator
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -111,6 +114,12 @@ def dashboard():
 def graph_view():
     """Serve the knowledge graph visualisation page."""
     return render_template("graph.html")
+
+
+@app.route("/study")
+def study_view():
+    """Serve the study mode page."""
+    return render_template("study.html")
 
 
 # ─── API Endpoints ──────────────────────────────────────────────────
@@ -347,6 +356,48 @@ def get_graph():
             })
 
     return jsonify(store.to_dict(graph))
+
+
+@app.route("/api/study/generate", methods=["POST"])
+def generate_study_path():
+    """Generate a personalised study path for a topic.
+
+    Request body:
+        {"topic": "neural networks"}
+
+    Returns:
+        StudyPath as JSON with ordered sections, summaries, sources.
+    """
+    rag = get_rag()
+    if rag is None:
+        return jsonify({
+            "error": "ANTHROPIC_API_KEY not set. Study mode requires an API key."
+        }), 503
+
+    data = request.get_json()
+    if not data or "topic" not in data:
+        return jsonify({"error": "Missing 'topic' field"}), 400
+
+    topic = data["topic"].strip()
+    if not topic:
+        return jsonify({"error": "Topic cannot be empty"}), 400
+
+    try:
+        # Load knowledge graph if available for concept expansion
+        store = GraphStore()
+        graph = store.load() if store.exists() else None
+
+        generator = PathGenerator(
+            knowledge_base=get_kb(),
+            llm_provider=rag.llm,
+            graph=graph,
+        )
+        path = generator.generate(topic)
+        return jsonify(path.to_dict())
+
+    except Exception as e:
+        logger.error("Study path generation error: %s", e)
+        return jsonify({"error": str(e)}), 500
 
 
 def create_app() -> Flask:
