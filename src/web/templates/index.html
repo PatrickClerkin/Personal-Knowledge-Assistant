@@ -62,7 +62,6 @@
         .stat-value { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
         .stat-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
 
-        /* Tabs */
         .tabs {
             display: flex;
             gap: 0.25rem;
@@ -87,7 +86,6 @@
         .tab-content { display: none; }
         .tab-content.active { display: block; }
 
-        /* Search */
         .search-box {
             display: flex;
             gap: 0.75rem;
@@ -123,7 +121,6 @@
         button:hover { background: var(--accent-hover); }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* Results */
         .result {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -148,13 +145,12 @@
         }
 
         .score-high { background: #22c55e22; color: var(--success); }
-        .score-mid { background: #f59e0b22; color: var(--warning); }
-        .score-low { background: #ef444422; color: var(--error); }
+        .score-mid  { background: #f59e0b22; color: var(--warning); }
+        .score-low  { background: #ef444422; color: var(--error); }
 
         .result-source { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.5rem; }
         .result-content { font-size: 0.9rem; line-height: 1.5; color: #d1d5db; }
 
-        /* Upload */
         .upload-zone {
             border: 2px dashed var(--border);
             border-radius: 12px;
@@ -170,10 +166,10 @@
         .upload-zone p { color: var(--muted); }
         .upload-zone .formats { font-size: 0.8rem; margin-top: 0.5rem; }
 
-        /* Chat */
+        /* ── Chat ───────────────────────────────────────────────── */
         .chat-messages {
             min-height: 300px;
-            max-height: 500px;
+            max-height: 560px;
             overflow-y: auto;
             margin-bottom: 1rem;
             padding: 1rem;
@@ -186,7 +182,7 @@
             margin-bottom: 1rem;
             padding: 0.75rem 1rem;
             border-radius: 8px;
-            max-width: 85%;
+            max-width: 88%;
         }
 
         .chat-msg.user {
@@ -198,6 +194,7 @@
         .chat-msg.assistant {
             background: #1e2130;
             border: 1px solid var(--border);
+            max-width: 100%;
         }
 
         .chat-msg h1, .chat-msg h2, .chat-msg h3 {
@@ -206,15 +203,9 @@
             color: var(--accent-hover);
         }
 
-        .chat-msg ul, .chat-msg ol {
-            padding-left: 1.5rem;
-            margin: 0.4rem 0;
-        }
-
+        .chat-msg ul, .chat-msg ol { padding-left: 1.5rem; margin: 0.4rem 0; }
         .chat-msg li { margin: 0.25rem 0; }
-
         .chat-msg strong { color: #e4e4e7; }
-
         .chat-msg p { margin: 0.4rem 0; }
 
         .chat-msg code {
@@ -233,264 +224,427 @@
             margin: 0.5rem 0;
         }
 
-        .chat-msg pre code {
-            background: none;
-            padding: 0;
+        .chat-msg pre code { background: none; padding: 0; }
+
+        /* ── Answer meta bar (confidence + cache) ───────────────── */
+        .answer-meta {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border);
+            flex-wrap: wrap;
         }
 
-        .chat-msg .sources {
-            font-size: 0.75rem;
-            color: var(--muted);
-            margin-top: 0.5rem;
-            padding-top: 0.5rem;
-            border-top: 1px solid var(--border);
+        .meta-badge {
+            font-size: 0.72rem;
+            font-weight: 600;
+            padding: 0.2rem 0.55rem;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .badge-strong   { background: #14532d44; color: #4ade80; border: 1px solid #166534; }
+        .badge-partial  { background: #451a0344; color: #fbbf24; border: 1px solid #92400e; }
+        .badge-weak     { background: #450a0a44; color: #f87171; border: 1px solid #7f1d1d; }
+        .badge-cache    { background: #1e3a5f44; color: #60a5fa; border: 1px solid #1e3a8a; }
+        .badge-retried  { background: #2d1b6944; color: #c4b5fd; border: 1px solid #4c1d95; }
+
+        .confidence-bar-wrap {
+            flex: 1;
+            min-width: 80px;
+            height: 4px;
+            background: #2a2d3a;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .confidence-bar {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.4s ease;
+        }
+
+        /* ── Citation source cards ──────────────────────────────── */
+        .citation-cards {
+            margin-top: 0.75rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .citation-card {
+            background: #13151f;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0.65rem 0.9rem;
+            font-size: 0.82rem;
+        }
+
+        .citation-card.grounded {
+            border-left: 3px solid #4ade80;
+        }
+
+        .citation-card.partial {
+            border-left: 3px solid #fbbf24;
+        }
+
+        .citation-card.weak {
+            border-left: 3px solid #f87171;
+            opacity: 0.7;
+        }
+
+        .citation-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.35rem;
+        }
+
+        .citation-source {
+            font-weight: 600;
+            color: #94a3b8;
+            font-size: 0.78rem;
+        }
+
+        .citation-score {
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 0.1rem 0.4rem;
+            border-radius: 3px;
+        }
+
+        .citation-content {
+            color: #9ca3af;
+            line-height: 1.5;
+            font-size: 0.81rem;
+        }
+
+        /* Highlighted matched terms */
+        .citation-content mark {
+            background: #6366f133;
+            color: #a5b4fc;
+            border-radius: 2px;
+            padding: 0 2px;
+            font-weight: 600;
+        }
+
+        .citation-terms {
+            margin-top: 0.35rem;
+            font-size: 0.72rem;
+            color: #64748b;
+        }
+
+        .citation-terms span {
+            display: inline-block;
+            background: #6366f122;
+            color: #818cf8;
+            border-radius: 3px;
+            padding: 0 0.3rem;
+            margin: 0.1rem 0.1rem 0 0;
         }
 
         .loading { color: var(--muted); font-style: italic; }
-
         .hidden { display: none; }
-
         #fileInput { display: none; }
     </style>
 </head>
 
 <body>
-    <div class="container">
-        <header>
-            <h1> Knowledge Assistant</h1>
-            <p>Document ingestion and semantic search</p>
-            <div class="stats">
-                <div class="stat">
-                    <div class="stat-value" id="chunkCount">-</div>
-                    <div class="stat-label">Chunks</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value" id="docCount">-</div>
-                    <div class="stat-label">Documents</div>
-                </div>
+<div class="container">
+    <header>
+        <h1>Knowledge Assistant</h1>
+        <p>Document ingestion and semantic search</p>
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-value" id="chunkCount">-</div>
+                <div class="stat-label">Chunks</div>
             </div>
-        </header>
-
-        <div class="tabs">
-            <button class="tab active" data-tab="search">Search</button>
-            <button class="tab" data-tab="upload">Upload</button>
-            <button class="tab" data-tab="chat">Chat</button>
-        </div>
-
-        <!-- Search Tab -->
-        <div class="tab-content active" id="tab-search">
-            <div class="search-box">
-                <input type="text" id="searchInput" placeholder="Search your knowledge base..."
-                       autofocus>
-                <button id="searchBtn">Search</button>
-            </div>
-            <div id="searchResults"></div>
-        </div>
-
-        <!-- Upload Tab -->
-        <div class="tab-content" id="tab-upload">
-            <div class="upload-zone" id="uploadZone">
-                <p>Drop files here or click to upload</p>
-                <p class="formats">Supported: .pdf, .txt, .md, .docx</p>
-            </div>
-            <input type="file" id="fileInput" accept=".pdf,.txt,.md,.docx" multiple>
-            <div id="uploadResults"></div>
-        </div>
-
-        <!-- Chat Tab -->
-        <div class="tab-content" id="tab-chat">
-            <div class="chat-messages" id="chatMessages">
-                <div class="chat-msg assistant">
-                    Ask me anything about your documents. I'll find relevant
-                    information and provide a grounded answer.
-                </div>
-            </div>
-            <div class="search-box">
-                <input type="text" id="chatInput" placeholder="Ask a question...">
-                <button id="chatBtn">Send</button>
+            <div class="stat">
+                <div class="stat-value" id="docCount">-</div>
+                <div class="stat-label">Documents</div>
             </div>
         </div>
+    </header>
+
+    <div class="tabs">
+        <button class="tab active" data-tab="search">Search</button>
+        <button class="tab" data-tab="upload">Upload</button>
+        <button class="tab" data-tab="chat">Chat</button>
     </div>
 
-    <script>
-        // ─── Tab Navigation ─────────────────────────────────────────
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                tab.classList.add('active');
-                document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    <!-- Search Tab -->
+    <div class="tab-content active" id="tab-search">
+        <div class="search-box">
+            <input type="text" id="searchInput"
+                   placeholder="Search your knowledge base..." autofocus>
+            <button id="searchBtn">Search</button>
+        </div>
+        <div id="searchResults"></div>
+    </div>
+
+    <!-- Upload Tab -->
+    <div class="tab-content" id="tab-upload">
+        <div class="upload-zone" id="uploadZone">
+            <p>Drop files here or click to upload</p>
+            <p class="formats">Supported: .pdf, .txt, .md, .docx</p>
+        </div>
+        <input type="file" id="fileInput" accept=".pdf,.txt,.md,.docx" multiple>
+        <div id="uploadResults"></div>
+    </div>
+
+    <!-- Chat Tab -->
+    <div class="tab-content" id="tab-chat">
+        <div class="chat-messages" id="chatMessages">
+            <div class="chat-msg assistant">
+                Ask me anything about your documents. I'll find relevant
+                information and provide a grounded answer.
+            </div>
+        </div>
+        <div class="search-box">
+            <input type="text" id="chatInput" placeholder="Ask a question...">
+            <button id="chatBtn">Send</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ─── Tab Navigation ──────────────────────────────────────────
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            tab.classList.add('active');
+            document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+        });
+    });
+
+    // ─── Load Stats ──────────────────────────────────────────────
+    async function loadStats() {
+        try {
+            const res = await fetch('/api/info');
+            const data = await res.json();
+            document.getElementById('chunkCount').textContent = data.total_chunks;
+            document.getElementById('docCount').textContent = data.num_documents;
+        } catch (e) { console.error('Failed to load stats:', e); }
+    }
+    loadStats();
+
+    // ─── Search ──────────────────────────────────────────────────
+    const searchInput   = document.getElementById('searchInput');
+    const searchBtn     = document.getElementById('searchBtn');
+    const searchResults = document.getElementById('searchResults');
+
+    async function doSearch() {
+        const query = searchInput.value.trim();
+        if (!query) return;
+        searchBtn.disabled = true;
+        searchResults.innerHTML = '<p class="loading">Searching...</p>';
+
+        try {
+            const res = await fetch('/api/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, top_k: 5 }),
             });
-        });
+            const data = await res.json();
 
-        // ─── Load Stats ─────────────────────────────────────────────
-        async function loadStats() {
-            try {
-                const res = await fetch('/api/info');
-                const data = await res.json();
-                document.getElementById('chunkCount').textContent = data.total_chunks;
-                document.getElementById('docCount').textContent = data.num_documents;
-            } catch (e) {
-                console.error('Failed to load stats:', e);
+            if (!data.results || data.results.length === 0) {
+                searchResults.innerHTML = '<p class="loading">No results found.</p>';
+                return;
             }
-        }
-        loadStats();
 
-        // ─── Search ─────────────────────────────────────────────────
-        const searchInput = document.getElementById('searchInput');
-        const searchBtn = document.getElementById('searchBtn');
-        const searchResults = document.getElementById('searchResults');
-
-        async function doSearch() {
-            const query = searchInput.value.trim();
-            if (!query) return;
-
-            searchBtn.disabled = true;
-            searchResults.innerHTML = '<p class="loading">Searching...</p>';
-
-            try {
-                const res = await fetch('/api/search', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query, top_k: 5 }),
-                });
-                const data = await res.json();
-
-                if (!data.results || data.results.length === 0) {
-                    searchResults.innerHTML = '<p class="loading">No results found.</p>';
-                    return;
-                }
-
-                searchResults.innerHTML = data.results.map(r => {
-                    const scoreClass = r.score > 0.5 ? 'score-high'
-                        : r.score > 0.3 ? 'score-mid' : 'score-low';
-                    const page = r.page ? ` · Page ${r.page}` : '';
-                    return `
-                        <div class="result">
-                            <div class="result-header">
-                                <span class="result-rank">#${r.rank}</span>
-                                <span class="result-score ${scoreClass}">${r.score.toFixed(3)}</span>
-                            </div>
-                            <div class="result-source">${r.source}${page}</div>
-                            <div class="result-content">${escapeHtml(r.content.substring(0, 400))}${r.content.length > 400 ? '...' : ''}</div>
+            searchResults.innerHTML = data.results.map(r => {
+                const scoreClass = r.score > 0.5 ? 'score-high'
+                    : r.score > 0.3 ? 'score-mid' : 'score-low';
+                const page = r.page ? ` · Page ${r.page}` : '';
+                return `
+                    <div class="result">
+                        <div class="result-header">
+                            <span class="result-rank">#${r.rank}</span>
+                            <span class="result-score ${scoreClass}">${r.score.toFixed(3)}</span>
                         </div>
-                    `;
-                }).join('');
-            } catch (e) {
-                searchResults.innerHTML = `<p class="loading">Error: ${e.message}</p>`;
-            } finally {
-                searchBtn.disabled = false;
-            }
+                        <div class="result-source">${r.source}${page}</div>
+                        <div class="result-content">${escapeHtml(r.content.substring(0, 400))}${r.content.length > 400 ? '...' : ''}</div>
+                    </div>`;
+            }).join('');
+        } catch (e) {
+            searchResults.innerHTML = `<p class="loading">Error: ${e.message}</p>`;
+        } finally {
+            searchBtn.disabled = false;
         }
+    }
 
-        searchBtn.addEventListener('click', doSearch);
-        searchInput.addEventListener('keypress', e => { if (e.key === 'Enter') doSearch(); });
+    searchBtn.addEventListener('click', doSearch);
+    searchInput.addEventListener('keypress', e => { if (e.key === 'Enter') doSearch(); });
 
-        // ─── Upload ─────────────────────────────────────────────────
-        const uploadZone = document.getElementById('uploadZone');
-        const fileInput = document.getElementById('fileInput');
-        const uploadResults = document.getElementById('uploadResults');
+    // ─── Upload ──────────────────────────────────────────────────
+    const uploadZone    = document.getElementById('uploadZone');
+    const fileInput     = document.getElementById('fileInput');
+    const uploadResults = document.getElementById('uploadResults');
 
-        uploadZone.addEventListener('click', () => fileInput.click());
-        uploadZone.addEventListener('dragover', e => {
-            e.preventDefault();
-            uploadZone.classList.add('dragover');
-        });
-        uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
-        uploadZone.addEventListener('drop', e => {
-            e.preventDefault();
-            uploadZone.classList.remove('dragover');
-            handleFiles(e.dataTransfer.files);
-        });
-        fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+    uploadZone.addEventListener('click', () => fileInput.click());
+    uploadZone.addEventListener('dragover', e => {
+        e.preventDefault(); uploadZone.classList.add('dragover');
+    });
+    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+    uploadZone.addEventListener('drop', e => {
+        e.preventDefault();
+        uploadZone.classList.remove('dragover');
+        handleFiles(e.dataTransfer.files);
+    });
+    fileInput.addEventListener('change', () => handleFiles(fileInput.files));
 
-        async function handleFiles(files) {
-            for (const file of files) {
-                const formData = new FormData();
-                formData.append('file', file);
-
-                uploadResults.innerHTML += `<p class="loading">Uploading ${file.name}...</p>`;
-
-                try {
-                    const res = await fetch('/api/ingest', {
-                        method: 'POST',
-                        body: formData,
-                    });
-                    const data = await res.json();
-
-                    if (data.error) {
-                        uploadResults.innerHTML += `<div class="result"><span style="color:var(--error)">✗ ${file.name}: ${data.error}</span></div>`;
-                    } else {
-                        uploadResults.innerHTML += `<div class="result"><span style="color:var(--success)">✓ ${file.name}: ${data.chunks_created} chunks created</span></div>`;
-                        loadStats();
-                    }
-                } catch (e) {
-                    uploadResults.innerHTML += `<div class="result"><span style="color:var(--error)">✗ ${file.name}: ${e.message}</span></div>`;
-                }
-            }
-        }
-
-        // ─── Chat ───────────────────────────────────────────────────
-        const chatMessages = document.getElementById('chatMessages');
-        const chatInput = document.getElementById('chatInput');
-        const chatBtn = document.getElementById('chatBtn');
-
-        async function sendChat() {
-            const question = chatInput.value.trim();
-            if (!question) return;
-
-            chatMessages.innerHTML += `<div class="chat-msg user">${escapeHtml(question)}</div>`;
-            chatInput.value = '';
-            chatBtn.disabled = true;
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-
-            const loadingId = 'loading-' + Date.now();
-            chatMessages.innerHTML += `<div class="chat-msg assistant loading" id="${loadingId}">Thinking...</div>`;
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-
+    async function handleFiles(files) {
+        for (const file of files) {
+            const formData = new FormData();
+            formData.append('file', file);
+            uploadResults.innerHTML += `<p class="loading">Uploading ${file.name}...</p>`;
             try {
-                const res = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question }),
-                });
+                const res = await fetch('/api/ingest', { method: 'POST', body: formData });
                 const data = await res.json();
-
-                const loadingEl = document.getElementById(loadingId);
-
                 if (data.error) {
-                    loadingEl.innerHTML = `<span style="color:var(--error)">${data.error}</span>`;
-                    loadingEl.classList.remove('loading');
+                    uploadResults.innerHTML += `<div class="result"><span style="color:var(--error)">✗ ${file.name}: ${data.error}</span></div>`;
                 } else {
-                    let sourcesHtml = '';
-                    if (data.sources && data.sources.length > 0) {
-                        const sources = data.sources.slice(0, 3).map(s =>
-                            `${s.source}${s.page ? ' p.' + s.page : ''}`
-                        ).join(' · ');
-                        sourcesHtml = `<div class="sources">Sources: ${sources}</div>`;
-                    }
-                    loadingEl.innerHTML = marked.parse(data.answer) + sourcesHtml;
-                    loadingEl.classList.remove('loading');
+                    uploadResults.innerHTML += `<div class="result"><span style="color:var(--success)">✓ ${file.name}: ${data.chunks_created} chunks created</span></div>`;
+                    loadStats();
                 }
             } catch (e) {
-                const loadingEl = document.getElementById(loadingId);
-                loadingEl.innerHTML = `<span style="color:var(--error)">Error: ${e.message}</span>`;
-                loadingEl.classList.remove('loading');
-            } finally {
-                chatBtn.disabled = false;
-                chatMessages.scrollTop = chatMessages.scrollHeight;
+                uploadResults.innerHTML += `<div class="result"><span style="color:var(--error)">✗ ${file.name}: ${e.message}</span></div>`;
             }
         }
+    }
 
-        chatBtn.addEventListener('click', sendChat);
-        chatInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendChat(); });
+    // ─── Chat ────────────────────────────────────────────────────
+    const chatMessages = document.getElementById('chatMessages');
+    const chatInput    = document.getElementById('chatInput');
+    const chatBtn      = document.getElementById('chatBtn');
 
-        // ─── Utility ────────────────────────────────────────────────
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+    async function sendChat() {
+        const question = chatInput.value.trim();
+        if (!question) return;
+
+        chatMessages.innerHTML += `<div class="chat-msg user">${escapeHtml(question)}</div>`;
+        chatInput.value = '';
+        chatBtn.disabled = true;
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        const loadingId = 'loading-' + Date.now();
+        chatMessages.innerHTML += `<div class="chat-msg assistant loading" id="${loadingId}">Thinking...</div>`;
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        try {
+            const res = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question }),
+            });
+            const data = await res.json();
+            const el = document.getElementById(loadingId);
+
+            if (data.error) {
+                el.innerHTML = `<span style="color:var(--error)">${data.error}</span>`;
+                el.classList.remove('loading');
+                return;
+            }
+
+            // ── Answer body ───────────────────────────────────────
+            let html = marked.parse(data.answer);
+
+            // ── Meta bar: confidence + cache + retry badges ───────
+            html += buildMetaBar(data);
+
+            // ── Citation cards with highlighted matched terms ──────
+            if (data.grounding && data.grounding.length > 0) {
+                html += buildCitationCards(data.grounding);
+            }
+
+            el.innerHTML = html;
+            el.classList.remove('loading');
+
+        } catch (e) {
+            const el = document.getElementById(loadingId);
+            el.innerHTML = `<span style="color:var(--error)">Error: ${e.message}</span>`;
+            el.classList.remove('loading');
+        } finally {
+            chatBtn.disabled = false;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
-    </script>
+    }
+
+    function buildMetaBar(data) {
+        if (data.confidence == null) return '';
+
+        const pct   = Math.round(data.confidence * 100);
+        const label = data.confidence >= 0.4 ? 'strong'
+                    : data.confidence >= 0.15 ? 'partial' : 'weak';
+        const barColour = label === 'strong' ? '#4ade80'
+                        : label === 'partial' ? '#fbbf24' : '#f87171';
+
+        let badges = `<span class="meta-badge badge-${label}">${label} · ${pct}%</span>`;
+
+        if (data.cache_hit) {
+            badges += `<span class="meta-badge badge-cache">⚡ cached</span>`;
+        }
+        if (data.retrieval_attempts > 1) {
+            badges += `<span class="meta-badge badge-retried">↺ ${data.retrieval_attempts} attempts</span>`;
+        }
+
+        return `
+            <div class="answer-meta">
+                ${badges}
+                <div class="confidence-bar-wrap">
+                    <div class="confidence-bar"
+                         style="width:${pct}%; background:${barColour}">
+                    </div>
+                </div>
+                <span style="font-size:0.72rem;color:#64748b">grounding</span>
+            </div>`;
+    }
+
+    function buildCitationCards(grounding) {
+        // Only show top 4 chunks
+        const shown = grounding.slice(0, 4);
+        const cards = shown.map(g => {
+            const cardClass = g.label === 'strong' ? 'grounded'
+                            : g.label === 'partial' ? 'partial' : 'weak';
+            const scoreColour = g.label === 'strong' ? '#4ade80'
+                              : g.label === 'partial' ? '#fbbf24' : '#f87171';
+            const page = g.page ? ` · p.${g.page}` : '';
+
+            // Find the matching source content from the grounding entry
+            // We'll show a short excerpt label since full content is on grounding obj
+            const termBadges = (g.matched_terms || []).slice(0, 6).map(t =>
+                `<span>${escapeHtml(t)}</span>`
+            ).join('');
+
+            return `
+                <div class="citation-card ${cardClass}">
+                    <div class="citation-header">
+                        <span class="citation-source">${escapeHtml(g.source)}${page}</span>
+                        <span class="citation-score"
+                              style="background:${scoreColour}22;color:${scoreColour}">
+                            ${g.grounding_score.toFixed(3)}
+                        </span>
+                    </div>
+                    ${termBadges ? `<div class="citation-terms">${termBadges}</div>` : ''}
+                </div>`;
+        });
+
+        return `<div class="citation-cards">${cards.join('')}</div>`;
+    }
+
+    chatBtn.addEventListener('click', sendChat);
+    chatInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendChat(); });
+
+    // ─── Utility ─────────────────────────────────────────────────
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+</script>
 </body>
 </html>

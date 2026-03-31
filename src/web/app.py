@@ -84,6 +84,15 @@ def get_rag():
     return _rag
 
 
+def _grounding_label(score: float) -> str:
+    """Compute a human-readable grounding label from a score."""
+    if score >= 0.40:
+        return "strong"
+    if score >= 0.15:
+        return "partial"
+    return "weak"
+
+
 # ─── Frontend ────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -209,7 +218,8 @@ def chat():
 
     Returns:
         {"answer": "...", "sources": [...], "usage": {...},
-         "confidence": 0.85, "cache_hit": false}
+         "confidence": 0.85, "cache_hit": false,
+         "retrieval_attempts": 1, "grounding": [...]}
     """
     rag = get_rag()
     if rag is None:
@@ -233,7 +243,7 @@ def chat():
                     "source": r.chunk.source_doc_title,
                     "page": r.chunk.page_number,
                     "score": round(r.score, 4),
-                    "content": r.chunk.content[:200],
+                    "content": r.chunk.content[:300],
                 }
                 for r in response.sources
             ],
@@ -241,6 +251,17 @@ def chat():
             "confidence": response.confidence,
             "cache_hit": response.cache_hit,
             "retrieval_attempts": response.retrieval_attempts,
+            "grounding": [
+                {
+                    "source": c.chunk_source,
+                    "page": c.page_number,
+                    "grounding_score": c.grounding_score,
+                    "label": _grounding_label(c.grounding_score),
+                    "is_grounded": c.is_grounded,
+                    "matched_terms": c.matched_terms,
+                }
+                for c in response.grounding.chunk_scores
+            ] if response.grounding else [],
         })
     except Exception as e:
         logger.error("Chat error: %s", e)
