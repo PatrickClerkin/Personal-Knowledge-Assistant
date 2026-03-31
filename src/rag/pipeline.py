@@ -4,13 +4,15 @@ Retrieval-Augmented Generation pipeline.
 Combines the retrieval system with an LLM to answer questions
 grounded in the knowledge base. The pipeline:
 
-1. Optionally rewrites the query using conversation history so
-   follow-up questions ("tell me more about that") resolve correctly.
-2. Retrieves relevant chunks from the vector store.
-3. Formats them as context for the LLM.
-4. Generates an answer with source citations.
-5. Scores each source chunk for how well it grounds the answer.
-6. Maintains a sliding-window conversation memory for follow-ups.
+1. Optionally generates a hypothetical document (HyDE) to improve
+   retrieval by embedding an ideal answer instead of the raw query.
+2. Optionally rewrites follow-up queries for conversational coherence.
+3. Retrieves relevant chunks from the vector store.
+4. Formats them as context for the LLM.
+5. Generates an answer with source citations.
+6. Scores answer grounding — if confidence is low, reformulates the
+   query and retries retrieval automatically (Adaptive Re-Retrieval).
+7. Maintains a sliding-window conversation memory for follow-ups.
 
 Design Pattern: Mediator Pattern — the pipeline coordinates
 between the KnowledgeBase, LLMProvider, and optional
@@ -18,7 +20,7 @@ reranker/query expander without them knowing about each other.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from .llm import LLMProvider, Message, LLMResponse
 from .memory import ConversationMemory, ConversationTurn
@@ -46,6 +48,21 @@ Rules:
 2. If the question is already self-contained, return it unchanged.
 3. Preserve the user's intent exactly — do not add assumptions."""
 
+_HYDE_SYSTEM_PROMPT = """You are a document generation assistant. Given a question, write a short hypothetical passage (2-4 sentences) that would perfectly answer it, as if it were an excerpt from a relevant document.
+
+Rules:
+1. Output ONLY the hypothetical passage. No explanation, no preamble.
+2. Write in a factual, document-like style.
+3. Stay focused — only include content directly relevant to the question."""
+
+_REFORMULATE_SYSTEM_PROMPT = """You are a search query expert. A retrieval attempt returned low-confidence results. Reformulate the query to find better matches.
+
+Rules:
+1. Output ONLY the reformulated query. No explanation, no preamble.
+2. Use different keywords and phrasing than the original.
+3. Be more specific or try a different angle — do not just rephrase slightly.
+4. Keep the reformulated query concise (one sentence maximum)."""
+
 
 @dataclass
 class RAGResponse:
@@ -58,18 +75,24 @@ class RAGResponse:
         query: The original query.
         rewritten_query: The standalone query used for retrieval,
             if different from the original.
-        grounding: Per-chunk grounding scores, sorted by support
-            strength. None if grounding is disabled.
-        confidence: Overall answer confidence score (0–1), derived
+        grounding: Grounding analysis of the answer against sources.
+            None if grounding is disabled.
+        confidence: Overall answer confidence score (0-1), derived
             from grounding. None if grounding is disabled.
+        retrieval_attempts: Number of retrieval attempts made.
+            Greater than 1 means adaptive re-retrieval was triggered.
+        hyde_query: The hypothetical document used for HyDE retrieval,
+            if HyDE was enabled. None otherwise.
     """
     answer: str
     sources: List[SearchResult]
     llm_response: LLMResponse
     query: str
     rewritten_query: Optional[str] = None
-    grounding: Optional[List[GroundingResult]] = None
+    grounding: Optional[GroundingResult] = None
     confidence: Optional[float] = None
+    retrieval_attempts: int = 1
+    hyde_query: Optional[str] = None
 
 
 class RAGPipeline:
@@ -79,6 +102,9 @@ class RAGPipeline:
     to answer questions grounded in the knowledge base.
 
     Supports:
+        - HyDE: embed a hypothetical answer instead of the raw query.
+        - Adaptive Re-Retrieval: retry with reformulated query if
+          answer confidence is below threshold.
         - Single-turn and multi-turn conversations with sliding window.
         - Automatic query rewriting for coherent follow-up retrieval.
         - Answer grounding: per-chunk confidence scores post-generation.
@@ -93,7 +119,7 @@ class RAGPipeline:
         rag = RAGPipeline(knowledge_base=kb, llm_provider=llm)
         response = rag.query("What is dependency injection?")
         print(response.answer)
-        print(response.confidence)
+        print(f"Confidence: {response.confidence}, Attempts: {response.retrieval_attempts}")
     """
 
     def __init__(
@@ -108,6 +134,10 @@ class RAGPipeline:
         hybrid: bool = False,
         memory_window: int = 3,
         ground_answer: bool = True,
+        use_hyde: bool = True,
+        adaptive_retrieval: bool = True,
+        confidence_threshold: float = 0.25,
+        max_retries: int = 2,
     ):
         self.kb = knowledge_base
         self.llm = llm_provider
@@ -118,6 +148,10 @@ class RAGPipeline:
         self.expand_query = expand_query
         self.hybrid = hybrid
         self.ground_answer = ground_answer
+        self.use_hyde = use_hyde
+        self.adaptive_retrieval = adaptive_retrieval
+        self.confidence_threshold = confidence_threshold
+        self.max_retries = max_retries
         self.memory = ConversationMemory(window_size=memory_window)
         self._grounder = GroundingScorer()
 
@@ -129,13 +163,14 @@ class RAGPipeline:
     ) -> RAGResponse:
         """Answer a question using retrieval-augmented generation.
 
-        If conversation history exists and ``include_history`` is True,
-        the question is first rewritten into a self-contained form for
-        accurate retrieval, then answered in the context of the full
-        conversation.
-
-        After generation, each source chunk is scored for how well it
-        grounds the answer (if ``ground_answer`` is enabled).
+        Runs HyDE and/or adaptive re-retrieval if enabled. The flow is:
+        1. Optionally rewrite follow-up query for retrieval coherence.
+        2. Optionally generate a hypothetical document (HyDE).
+        3. Retrieve chunks using the best available query form.
+        4. Generate answer.
+        5. Score grounding — if confidence < threshold, reformulate
+           and retry retrieval up to max_retries times.
+        6. Return the best result found.
 
         Args:
             question: The user's question.
@@ -143,11 +178,11 @@ class RAGPipeline:
             include_history: Whether to use conversation history.
 
         Returns:
-            RAGResponse with the answer, sources, grounding, and metadata.
+            RAGResponse with answer, sources, grounding, and metadata.
         """
         top_k = top_k or self.top_k
 
-        # Rewrite follow-up queries to be self-contained for retrieval
+        # Step 1: Rewrite follow-up queries
         rewritten_query = None
         retrieval_query = question
         if include_history and not self.memory.is_empty():
@@ -159,71 +194,111 @@ class RAGPipeline:
                     question[:50], rewritten_query[:50],
                 )
 
-        # Retrieve relevant context
-        if self.hybrid or self.rerank or self.expand_query:
-            results = self.kb.advanced_search(
-                retrieval_query,
-                top_k=top_k,
-                rerank=self.rerank,
-                expand_query=self.expand_query,
-                hybrid=self.hybrid,
-            )
-        else:
-            results = self.kb.search(retrieval_query, top_k=top_k)
+        # Step 2: HyDE — generate hypothetical document for retrieval
+        hyde_query = None
+        if self.use_hyde and self.llm.is_available():
+            hyde_query = self._generate_hypothetical_document(retrieval_query)
+            if hyde_query:
+                logger.info("HyDE document generated (%d chars)", len(hyde_query))
 
-        logger.info(
-            "Retrieved %d chunks for query: '%s'",
-            len(results), retrieval_query[:50],
-        )
+        # Step 3 onwards — retrieval + generation + adaptive retry loop
+        best_results: List[SearchResult] = []
+        best_grounding: Optional[GroundingResult] = None
+        best_confidence: float = 0.0
+        best_llm_response: Optional[LLMResponse] = None
+        attempts = 0
+        current_query = hyde_query or retrieval_query
 
-        # Format context and build prompt
-        context = self._format_context(results)
-        prompt = self._build_prompt(question, context)
-
-        # Pass sliding-window history to the LLM
         history = self.memory.get_messages() if include_history else None
 
-        # Generate answer
-        llm_response = self.llm.generate(
-            prompt=prompt,
-            system=self.system_prompt,
-            history=history,
-        )
+        for attempt in range(1 + self.max_retries):
+            attempts = attempt + 1
 
-        # Score answer grounding against source chunks
-        grounding = None
-        confidence = None
-        if self.ground_answer and results:
-            grounding = self._grounder.score(llm_response.content, results)
-            confidence = grounding.overall_confidence
+            # Retrieve
+            results = self._retrieve(current_query, top_k)
             logger.info(
-                "Answer confidence: %.3f (top chunk grounding: %.3f)",
-                confidence,
-                grounding.chunk_scores[0].grounding_score if grounding.chunk_scores else 0.0,
+                "Attempt %d: retrieved %d chunks for query: '%s'",
+                attempts, len(results), current_query[:50],
             )
+
+            if not results:
+                break
+
+            # Generate answer
+            context = self._format_context(results)
+            prompt = self._build_prompt(question, context)
+            llm_response = self.llm.generate(
+                prompt=prompt,
+                system=self.system_prompt,
+                history=history,
+            )
+
+            # Score grounding
+            grounding = None
+            confidence = 0.0
+            if self.ground_answer:
+                grounding = self._grounder.score(llm_response.content, results)
+                confidence = grounding.overall_confidence
+                logger.info(
+                    "Attempt %d confidence: %.3f (threshold: %.3f)",
+                    attempts, confidence, self.confidence_threshold,
+                )
+
+            # Keep best result
+            if confidence >= best_confidence:
+                best_results = results
+                best_grounding = grounding
+                best_confidence = confidence
+                best_llm_response = llm_response
+
+            # Stop if confidence is acceptable or adaptive retrieval disabled
+            if (
+                not self.adaptive_retrieval
+                or not self.ground_answer
+                or confidence >= self.confidence_threshold
+                or attempt >= self.max_retries
+            ):
+                break
+
+            # Reformulate query for next attempt
+            reformulated = self._reformulate_query(retrieval_query, attempt + 1)
+            if not reformulated or reformulated == current_query:
+                logger.info("Reformulation unchanged — stopping early.")
+                break
+
+            logger.info(
+                "Low confidence (%.3f) — reformulating: '%s'",
+                confidence, reformulated[:60],
+            )
+            current_query = reformulated
 
         # Record this turn in memory
         self.memory.add_turn(
             question=question,
-            answer=llm_response.content,
+            answer=best_llm_response.content,
             rewritten_query=rewritten_query,
         )
 
         logger.info(
-            "Generated answer: %d chars, %d input tokens, %d output tokens",
-            len(llm_response.content),
-            llm_response.usage.get("input_tokens", 0),
-            llm_response.usage.get("output_tokens", 0),
+            "Final answer: %d chars, confidence=%.3f, attempts=%d, "
+            "%d input tokens, %d output tokens",
+            len(best_llm_response.content),
+            best_confidence,
+            attempts,
+            best_llm_response.usage.get("input_tokens", 0),
+            best_llm_response.usage.get("output_tokens", 0),
         )
 
         return RAGResponse(
-            answer=llm_response.content,
-            sources=results,
-            llm_response=llm_response,
+            answer=best_llm_response.content,
+            sources=best_results,
+            llm_response=best_llm_response,
             query=question,
             rewritten_query=rewritten_query,
-            grounding=grounding,
-            confidence=confidence,
+            grounding=best_grounding,
+            confidence=best_confidence,
+            retrieval_attempts=attempts,
+            hyde_query=hyde_query,
         )
 
     def clear_history(self) -> None:
@@ -236,19 +311,72 @@ class RAGPipeline:
         """Number of turns recorded in memory."""
         return self.memory.total_turns
 
-    def _rewrite_query(self, question: str) -> Optional[str]:
-        """Rewrite a follow-up question to be self-contained.
+    # ─── Private helpers ────────────────────────────────────────────
 
-        Uses the last turn of conversation history to give the LLM
-        just enough context to resolve references like "it", "that",
-        "the previous topic", etc.
+    def _retrieve(self, query: str, top_k: int) -> List[SearchResult]:
+        """Run retrieval using the configured strategy."""
+        if self.hybrid or self.rerank or self.expand_query:
+            return self.kb.advanced_search(
+                query,
+                top_k=top_k,
+                rerank=self.rerank,
+                expand_query=self.expand_query,
+                hybrid=self.hybrid,
+            )
+        return self.kb.search(query, top_k=top_k)
+
+    def _generate_hypothetical_document(self, question: str) -> Optional[str]:
+        """Generate a hypothetical ideal answer for HyDE retrieval.
+
+        The generated text is used as the embedding query instead of
+        the raw question, improving semantic match with stored chunks.
 
         Args:
-            question: The user's raw follow-up question.
+            question: The user's question.
 
         Returns:
-            A rewritten, self-contained question, or None on failure.
+            A short hypothetical passage, or None on failure.
         """
+        try:
+            response = self.llm.generate(
+                prompt=f"Question: {question}",
+                system=_HYDE_SYSTEM_PROMPT,
+                max_tokens=200,
+                temperature=0.5,
+            )
+            text = response.content.strip()
+            return text if text else None
+        except Exception as e:
+            logger.warning("HyDE generation failed, using raw query: %s", e)
+            return None
+
+    def _reformulate_query(self, question: str, attempt: int) -> Optional[str]:
+        """Reformulate a low-confidence query for adaptive re-retrieval.
+
+        Args:
+            question: The original retrieval query.
+            attempt: Current attempt number (used for logging).
+
+        Returns:
+            A reformulated query string, or None on failure.
+        """
+        try:
+            response = self.llm.generate(
+                prompt=f"Original query: {question}",
+                system=_REFORMULATE_SYSTEM_PROMPT,
+                max_tokens=100,
+                temperature=0.4,
+            )
+            reformulated = response.content.strip()
+            return reformulated if reformulated else None
+        except Exception as e:
+            logger.warning(
+                "Query reformulation (attempt %d) failed: %s", attempt, e
+            )
+            return None
+
+    def _rewrite_query(self, question: str) -> Optional[str]:
+        """Rewrite a follow-up question to be self-contained."""
         if not self.llm.is_available():
             return None
 
