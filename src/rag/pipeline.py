@@ -4,15 +4,18 @@ Retrieval-Augmented Generation pipeline.
 Combines the retrieval system with an LLM to answer questions
 grounded in the knowledge base. The pipeline:
 
-1. Optionally generates a hypothetical document (HyDE) to improve
+1. Checks the semantic cache — returns instantly if a similar query
+   was answered recently.
+2. Optionally generates a hypothetical document (HyDE) to improve
    retrieval by embedding an ideal answer instead of the raw query.
-2. Optionally rewrites follow-up queries for conversational coherence.
-3. Retrieves relevant chunks from the vector store.
-4. Formats them as context for the LLM.
-5. Generates an answer with source citations.
-6. Scores answer grounding — if confidence is low, reformulates the
+3. Optionally rewrites follow-up queries for conversational coherence.
+4. Retrieves relevant chunks from the vector store.
+5. Formats them as context for the LLM.
+6. Generates an answer with source citations.
+7. Scores answer grounding — if confidence is low, reformulates the
    query and retries retrieval automatically (Adaptive Re-Retrieval).
-7. Maintains a sliding-window conversation memory for follow-ups.
+8. Stores the result in the semantic cache for future queries.
+9. Maintains a sliding-window conversation memory for follow-ups.
 
 Design Pattern: Mediator Pattern — the pipeline coordinates
 between the KnowledgeBase, LLMProvider, and optional
@@ -25,6 +28,7 @@ from typing import List, Optional, Tuple
 from .llm import LLMProvider, Message, LLMResponse
 from .memory import ConversationMemory, ConversationTurn
 from .grounding import GroundingScorer, GroundingResult
+from .cache import SemanticCache
 from ..ingestion.knowledge_base import KnowledgeBase
 from ..ingestion.storage.vector_store import SearchResult
 from ..utils.logger import get_logger
@@ -83,6 +87,8 @@ class RAGResponse:
             Greater than 1 means adaptive re-retrieval was triggered.
         hyde_query: The hypothetical document used for HyDE retrieval,
             if HyDE was enabled. None otherwise.
+        cache_hit: True if this response was served from the semantic
+            cache without any retrieval or LLM calls.
     """
     answer: str
     sources: List[SearchResult]
@@ -93,6 +99,7 @@ class RAGResponse:
     confidence: Optional[float] = None
     retrieval_attempts: int = 1
     hyde_query: Optional[str] = None
+    cache_hit: bool = False
 
 
 class RAGPipeline:
@@ -102,6 +109,7 @@ class RAGPipeline:
     to answer questions grounded in the knowledge base.
 
     Supports:
+        - Semantic query caching: instant responses for similar queries.
         - HyDE: embed a hypothetical answer instead of the raw query.
         - Adaptive Re-Retrieval: retry with reformulated query if
           answer confidence is below threshold.
@@ -119,6 +127,7 @@ class RAGPipeline:
         rag = RAGPipeline(knowledge_base=kb, llm_provider=llm)
         response = rag.query("What is dependency injection?")
         print(response.answer)
+        print(f"Cache hit: {response.cache_hit}")
         print(f"Confidence: {response.confidence}, Attempts: {response.retrieval_attempts}")
     """
 
@@ -138,6 +147,8 @@ class RAGPipeline:
         adaptive_retrieval: bool = True,
         confidence_threshold: float = 0.25,
         max_retries: int = 2,
+        use_cache: bool = True,
+        cache_threshold: float = 0.92,
     ):
         self.kb = knowledge_base
         self.llm = llm_provider
@@ -154,6 +165,7 @@ class RAGPipeline:
         self.max_retries = max_retries
         self.memory = ConversationMemory(window_size=memory_window)
         self._grounder = GroundingScorer()
+        self._cache = SemanticCache(threshold=cache_threshold) if use_cache else None
 
     def query(
         self,
@@ -163,14 +175,20 @@ class RAGPipeline:
     ) -> RAGResponse:
         """Answer a question using retrieval-augmented generation.
 
-        Runs HyDE and/or adaptive re-retrieval if enabled. The flow is:
-        1. Optionally rewrite follow-up query for retrieval coherence.
-        2. Optionally generate a hypothetical document (HyDE).
-        3. Retrieve chunks using the best available query form.
-        4. Generate answer.
-        5. Score grounding — if confidence < threshold, reformulate
+        Checks the semantic cache first — if a similar query was
+        answered recently, returns that response instantly.
+
+        Otherwise runs HyDE and/or adaptive re-retrieval if enabled.
+        The full flow is:
+        1. Check semantic cache.
+        2. Optionally rewrite follow-up query for retrieval coherence.
+        3. Optionally generate a hypothetical document (HyDE).
+        4. Retrieve chunks using the best available query form.
+        5. Generate answer.
+        6. Score grounding — if confidence < threshold, reformulate
            and retry retrieval up to max_retries times.
-        6. Return the best result found.
+        7. Store result in cache.
+        8. Return the best result found.
 
         Args:
             question: The user's question.
@@ -181,6 +199,14 @@ class RAGPipeline:
             RAGResponse with answer, sources, grounding, and metadata.
         """
         top_k = top_k or self.top_k
+
+        # Step 0: Check semantic cache before any retrieval or LLM calls
+        if self._cache is not None:
+            cached = self._cache.get(question)
+            if cached is not None:
+                cached.cache_hit = True
+                logger.info("Serving answer from semantic cache for: '%s'", question[:50])
+                return cached
 
         # Step 1: Rewrite follow-up queries
         rewritten_query = None
@@ -289,7 +315,7 @@ class RAGPipeline:
             best_llm_response.usage.get("output_tokens", 0),
         )
 
-        return RAGResponse(
+        response = RAGResponse(
             answer=best_llm_response.content,
             sources=best_results,
             llm_response=best_llm_response,
@@ -299,7 +325,14 @@ class RAGPipeline:
             confidence=best_confidence,
             retrieval_attempts=attempts,
             hyde_query=hyde_query,
+            cache_hit=False,
         )
+
+        # Store result in semantic cache for future similar queries
+        if self._cache is not None:
+            self._cache.store(question, response)
+
+        return response
 
     def clear_history(self) -> None:
         """Clear conversation memory for a fresh start."""
@@ -310,6 +343,11 @@ class RAGPipeline:
     def conversation_length(self) -> int:
         """Number of turns recorded in memory."""
         return self.memory.total_turns
+
+    @property
+    def cache_stats(self) -> Optional[dict]:
+        """Return semantic cache statistics, or None if cache disabled."""
+        return self._cache.stats if self._cache is not None else None
 
     # ─── Private helpers ────────────────────────────────────────────
 
