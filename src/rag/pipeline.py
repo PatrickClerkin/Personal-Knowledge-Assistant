@@ -14,8 +14,9 @@ grounded in the knowledge base. The pipeline:
 6. Generates an answer with source citations.
 7. Scores answer grounding — if confidence is low, reformulates the
    query and retries retrieval automatically (Adaptive Re-Retrieval).
-8. Stores the result in the semantic cache for future queries.
-9. Maintains a sliding-window conversation memory for follow-ups.
+8. Fact-verifies each sentence of the answer against source chunks.
+9. Stores the result in the semantic cache for future queries.
+10. Maintains a sliding-window conversation memory for follow-ups.
 
 Design Pattern: Mediator Pattern — the pipeline coordinates
 between the KnowledgeBase, LLMProvider, and optional
@@ -29,6 +30,7 @@ from .llm import LLMProvider, Message, LLMResponse
 from .memory import ConversationMemory, ConversationTurn
 from .grounding import GroundingScorer, GroundingResult
 from .cache import SemanticCache
+from .fact_verifier import FactVerifier, VerificationResult
 from ..ingestion.knowledge_base import KnowledgeBase
 from ..ingestion.storage.vector_store import SearchResult
 from ..utils.logger import get_logger
@@ -89,6 +91,8 @@ class RAGResponse:
             if HyDE was enabled. None otherwise.
         cache_hit: True if this response was served from the semantic
             cache without any retrieval or LLM calls.
+        verification: Sentence-level fact verification result.
+            None if fact verification is disabled.
     """
     answer: str
     sources: List[SearchResult]
@@ -100,6 +104,7 @@ class RAGResponse:
     retrieval_attempts: int = 1
     hyde_query: Optional[str] = None
     cache_hit: bool = False
+    verification: Optional[VerificationResult] = None
 
 
 class RAGPipeline:
@@ -116,6 +121,7 @@ class RAGPipeline:
         - Single-turn and multi-turn conversations with sliding window.
         - Automatic query rewriting for coherent follow-up retrieval.
         - Answer grounding: per-chunk confidence scores post-generation.
+        - Sentence-level fact verification against source chunks.
         - Optional reranking and query expansion.
         - Optional hybrid BM25+FAISS retrieval.
         - Configurable context window and system prompt.
@@ -149,6 +155,7 @@ class RAGPipeline:
         max_retries: int = 2,
         use_cache: bool = True,
         cache_threshold: float = 0.92,
+        verify_facts: bool = True,
     ):
         self.kb = knowledge_base
         self.llm = llm_provider
@@ -166,6 +173,7 @@ class RAGPipeline:
         self.memory = ConversationMemory(window_size=memory_window)
         self._grounder = GroundingScorer()
         self._cache = SemanticCache(threshold=cache_threshold) if use_cache else None
+        self._verifier = FactVerifier() if verify_facts else None
 
     def query(
         self,
@@ -187,8 +195,9 @@ class RAGPipeline:
         5. Generate answer.
         6. Score grounding — if confidence < threshold, reformulate
            and retry retrieval up to max_retries times.
-        7. Store result in cache.
-        8. Return the best result found.
+        7. Fact-verify each sentence against source chunks.
+        8. Store result in cache.
+        9. Return the best result found.
 
         Args:
             question: The user's question.
@@ -196,7 +205,8 @@ class RAGPipeline:
             include_history: Whether to use conversation history.
 
         Returns:
-            RAGResponse with answer, sources, grounding, and metadata.
+            RAGResponse with answer, sources, grounding, verification,
+            and metadata.
         """
         top_k = top_k or self.top_k
 
@@ -298,6 +308,19 @@ class RAGPipeline:
             )
             current_query = reformulated
 
+        # Fact-verify each sentence of the answer against source chunks
+        verification = None
+        if self._verifier and best_results:
+            verification = self._verifier.verify(
+                best_llm_response.content, best_results
+            )
+            logger.info(
+                "Fact verification: %d supported, %d partial, %d unverified",
+                verification.supported_count,
+                verification.partial_count,
+                verification.unverified_count,
+            )
+
         # Record this turn in memory
         self.memory.add_turn(
             question=question,
@@ -326,6 +349,7 @@ class RAGPipeline:
             retrieval_attempts=attempts,
             hyde_query=hyde_query,
             cache_hit=False,
+            verification=verification,
         )
 
         # Store result in semantic cache for future similar queries
@@ -364,17 +388,7 @@ class RAGPipeline:
         return self.kb.search(query, top_k=top_k)
 
     def _generate_hypothetical_document(self, question: str) -> Optional[str]:
-        """Generate a hypothetical ideal answer for HyDE retrieval.
-
-        The generated text is used as the embedding query instead of
-        the raw question, improving semantic match with stored chunks.
-
-        Args:
-            question: The user's question.
-
-        Returns:
-            A short hypothetical passage, or None on failure.
-        """
+        """Generate a hypothetical ideal answer for HyDE retrieval."""
         try:
             response = self.llm.generate(
                 prompt=f"Question: {question}",
@@ -389,15 +403,7 @@ class RAGPipeline:
             return None
 
     def _reformulate_query(self, question: str, attempt: int) -> Optional[str]:
-        """Reformulate a low-confidence query for adaptive re-retrieval.
-
-        Args:
-            question: The original retrieval query.
-            attempt: Current attempt number (used for logging).
-
-        Returns:
-            A reformulated query string, or None on failure.
-        """
+        """Reformulate a low-confidence query for adaptive re-retrieval."""
         try:
             response = self.llm.generate(
                 prompt=f"Original query: {question}",

@@ -237,7 +237,8 @@ def chat():
     Returns:
         {"answer": "...", "sources": [...], "usage": {...},
          "confidence": 0.85, "cache_hit": false,
-         "retrieval_attempts": 1, "grounding": [...]}
+         "retrieval_attempts": 1, "grounding": [...],
+         "verification": {...}}
     """
     rag = get_rag()
     if rag is None:
@@ -280,6 +281,8 @@ def chat():
                 }
                 for c in response.grounding.chunk_scores
             ] if response.grounding else [],
+            "verification": response.verification.to_dict()
+                if response.verification else None,
         })
     except Exception as e:
         logger.error("Chat error: %s", e)

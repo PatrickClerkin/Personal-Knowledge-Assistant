@@ -5,6 +5,7 @@ from .pipeline import RAGPipeline
 from .memory import ConversationMemory, ConversationTurn
 from .grounding import GroundingScorer, GroundingResult
 from .cache import SemanticCache, CacheEntry
+from .fact_verifier import FactVerifier, VerificationResult, SentenceVerdict
 
 
 __all__ = [
@@ -17,4 +18,7 @@ __all__ = [
     "GroundingResult",
     "SemanticCache",
     "CacheEntry",
+    "FactVerifier",
+    "VerificationResult",
+    "SentenceVerdict",
 ]

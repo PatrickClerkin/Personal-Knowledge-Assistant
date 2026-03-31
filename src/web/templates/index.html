@@ -28,11 +28,7 @@
             line-height: 1.6;
         }
 
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-            padding: 2rem 1.5rem;
-        }
+        .container { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem; }
 
         header {
             text-align: center;
@@ -44,12 +40,7 @@
         header h1 { font-size: 1.8rem; font-weight: 600; }
         header p { color: var(--muted); margin-top: 0.25rem; }
 
-        .stats {
-            display: flex;
-            gap: 1.5rem;
-            justify-content: center;
-            margin-top: 1rem;
-        }
+        .stats { display: flex; gap: 1.5rem; justify-content: center; margin-top: 1rem; }
 
         .stat {
             background: var(--surface);
@@ -62,12 +53,7 @@
         .stat-value { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
         .stat-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
 
-        .tabs {
-            display: flex;
-            gap: 0.25rem;
-            margin-bottom: 1.5rem;
-            border-bottom: 1px solid var(--border);
-        }
+        .tabs { display: flex; gap: 0.25rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
 
         .tab {
             padding: 0.75rem 1.25rem;
@@ -86,11 +72,7 @@
         .tab-content { display: none; }
         .tab-content.active { display: block; }
 
-        .search-box {
-            display: flex;
-            gap: 0.75rem;
-            margin-bottom: 1.5rem;
-        }
+        .search-box { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; }
 
         input[type="text"], textarea {
             flex: 1;
@@ -129,21 +111,10 @@
             margin-bottom: 0.75rem;
         }
 
-        .result-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.5rem;
-        }
-
+        .result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
         .result-rank { font-weight: 600; }
-        .result-score {
-            font-size: 0.8rem;
-            padding: 0.2rem 0.5rem;
-            border-radius: 4px;
-            font-weight: 600;
-        }
 
+        .result-score { font-size: 0.8rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600; }
         .score-high { background: #22c55e22; color: var(--success); }
         .score-mid  { background: #f59e0b22; color: var(--warning); }
         .score-low  { background: #ef444422; color: var(--error); }
@@ -185,11 +156,7 @@
             max-width: 88%;
         }
 
-        .chat-msg.user {
-            background: var(--accent);
-            color: white;
-            margin-left: auto;
-        }
+        .chat-msg.user { background: var(--accent); color: white; margin-left: auto; }
 
         .chat-msg.assistant {
             background: #1e2130;
@@ -226,7 +193,7 @@
 
         .chat-msg pre code { background: none; padding: 0; }
 
-        /* ── Answer meta bar (confidence + cache) ───────────────── */
+        /* ── Answer meta bar ────────────────────────────────────── */
         .answer-meta {
             display: flex;
             align-items: center;
@@ -246,11 +213,11 @@
             letter-spacing: 0.04em;
         }
 
-        .badge-strong   { background: #14532d44; color: #4ade80; border: 1px solid #166534; }
-        .badge-partial  { background: #451a0344; color: #fbbf24; border: 1px solid #92400e; }
-        .badge-weak     { background: #450a0a44; color: #f87171; border: 1px solid #7f1d1d; }
-        .badge-cache    { background: #1e3a5f44; color: #60a5fa; border: 1px solid #1e3a8a; }
-        .badge-retried  { background: #2d1b6944; color: #c4b5fd; border: 1px solid #4c1d95; }
+        .badge-strong  { background: #14532d44; color: #4ade80; border: 1px solid #166534; }
+        .badge-partial { background: #451a0344; color: #fbbf24; border: 1px solid #92400e; }
+        .badge-weak    { background: #450a0a44; color: #f87171; border: 1px solid #7f1d1d; }
+        .badge-cache   { background: #1e3a5f44; color: #60a5fa; border: 1px solid #1e3a8a; }
+        .badge-retried { background: #2d1b6944; color: #c4b5fd; border: 1px solid #4c1d95; }
 
         .confidence-bar-wrap {
             flex: 1;
@@ -261,19 +228,10 @@
             overflow: hidden;
         }
 
-        .confidence-bar {
-            height: 100%;
-            border-radius: 2px;
-            transition: width 0.4s ease;
-        }
+        .confidence-bar { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
 
-        /* ── Citation source cards ──────────────────────────────── */
-        .citation-cards {
-            margin-top: 0.75rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
+        /* ── Citation cards ─────────────────────────────────────── */
+        .citation-cards { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
 
         .citation-card {
             background: #13151f;
@@ -283,60 +241,15 @@
             font-size: 0.82rem;
         }
 
-        .citation-card.grounded {
-            border-left: 3px solid #4ade80;
-        }
+        .citation-card.grounded { border-left: 3px solid #4ade80; }
+        .citation-card.partial  { border-left: 3px solid #fbbf24; }
+        .citation-card.weak     { border-left: 3px solid #f87171; opacity: 0.7; }
 
-        .citation-card.partial {
-            border-left: 3px solid #fbbf24;
-        }
+        .citation-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; }
+        .citation-source { font-weight: 600; color: #94a3b8; font-size: 0.78rem; }
+        .citation-score  { font-size: 0.72rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 3px; }
 
-        .citation-card.weak {
-            border-left: 3px solid #f87171;
-            opacity: 0.7;
-        }
-
-        .citation-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.35rem;
-        }
-
-        .citation-source {
-            font-weight: 600;
-            color: #94a3b8;
-            font-size: 0.78rem;
-        }
-
-        .citation-score {
-            font-size: 0.72rem;
-            font-weight: 700;
-            padding: 0.1rem 0.4rem;
-            border-radius: 3px;
-        }
-
-        .citation-content {
-            color: #9ca3af;
-            line-height: 1.5;
-            font-size: 0.81rem;
-        }
-
-        /* Highlighted matched terms */
-        .citation-content mark {
-            background: #6366f133;
-            color: #a5b4fc;
-            border-radius: 2px;
-            padding: 0 2px;
-            font-weight: 600;
-        }
-
-        .citation-terms {
-            margin-top: 0.35rem;
-            font-size: 0.72rem;
-            color: #64748b;
-        }
-
+        .citation-terms { margin-top: 0.35rem; font-size: 0.72rem; color: #64748b; }
         .citation-terms span {
             display: inline-block;
             background: #6366f122;
@@ -347,7 +260,7 @@
         }
 
         .loading { color: var(--muted); font-style: italic; }
-        .hidden { display: none; }
+        .hidden  { display: none; }
         #fileInput { display: none; }
     </style>
 </head>
@@ -550,13 +463,15 @@
                 return;
             }
 
-            // ── Answer body ───────────────────────────────────────
-            let html = marked.parse(data.answer);
+            // ── Answer body: use verified view if available ───────
+            let html = data.verification && data.verification.verdicts.length > 0
+                ? renderVerifiedAnswer(data.verification.verdicts)
+                : marked.parse(data.answer);
 
-            // ── Meta bar: confidence + cache + retry badges ───────
+            // ── Meta bar ─────────────────────────────────────────
             html += buildMetaBar(data);
 
-            // ── Citation cards with highlighted matched terms ──────
+            // ── Citation cards ────────────────────────────────────
             if (data.grounding && data.grounding.length > 0) {
                 html += buildCitationCards(data.grounding);
             }
@@ -574,6 +489,42 @@
         }
     }
 
+    // ─── Verified answer rendering ────────────────────────────────
+    function renderVerifiedAnswer(verdicts) {
+        const colourMap = {
+            supported:  { bg: "#052e1644", border: "#4ade80" },
+            partial:    { bg: "#45260044", border: "#fbbf24" },
+            unverified: { bg: "#1a1a2e44", border: "#64748b" },
+        };
+
+        const legend = `
+            <div style="display:flex;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.6rem;font-size:0.72rem;">
+                <span style="color:#4ade80">● Supported</span>
+                <span style="color:#fbbf24">● Partial</span>
+                <span style="color:#94a3b8">● Unverified</span>
+            </div>`;
+
+        const sentences = verdicts.map(v => {
+            const c = colourMap[v.status] || colourMap.unverified;
+            const tip = v.best_source
+                ? `${v.status} · ${v.best_source}${v.best_page ? ' p.' + v.best_page : ''} · score: ${v.best_score.toFixed(3)}`
+                : v.status;
+            return `<span title="${escapeHtml(tip)}" style="
+                background:${c.bg};
+                border-bottom:2px solid ${c.border};
+                padding:1px 3px;
+                border-radius:2px;
+                cursor:help;
+                color:#e2e8f0;
+                line-height:1.9;
+                display:inline;
+            ">${escapeHtml(v.sentence)}</span>`;
+        }).join(' ');
+
+        return legend + `<p style="line-height:1.9">${sentences}</p>`;
+    }
+
+    // ─── Meta bar ─────────────────────────────────────────────────
     function buildMetaBar(data) {
         if (data.confidence == null) return '';
 
@@ -591,6 +542,19 @@
         if (data.retrieval_attempts > 1) {
             badges += `<span class="meta-badge badge-retried">↺ ${data.retrieval_attempts} attempts</span>`;
         }
+        if (data.verification) {
+            const vScore = Math.round(
+                data.verification.overall_verification_score * 100
+            );
+            const vColour = vScore >= 70 ? "#4ade80"
+                          : vScore >= 40 ? "#fbbf24" : "#f87171";
+            badges += `<span class="meta-badge" style="
+                background:${vColour}22;
+                color:${vColour};
+                border:1px solid ${vColour}44">
+                ✓ ${vScore}% verified
+            </span>`;
+        }
 
         return `
             <div class="answer-meta">
@@ -604,18 +568,15 @@
             </div>`;
     }
 
+    // ─── Citation cards ───────────────────────────────────────────
     function buildCitationCards(grounding) {
-        // Only show top 4 chunks
         const shown = grounding.slice(0, 4);
         const cards = shown.map(g => {
-            const cardClass = g.label === 'strong' ? 'grounded'
-                            : g.label === 'partial' ? 'partial' : 'weak';
+            const cardClass  = g.label === 'strong' ? 'grounded'
+                             : g.label === 'partial' ? 'partial' : 'weak';
             const scoreColour = g.label === 'strong' ? '#4ade80'
                               : g.label === 'partial' ? '#fbbf24' : '#f87171';
             const page = g.page ? ` · p.${g.page}` : '';
-
-            // Find the matching source content from the grounding entry
-            // We'll show a short excerpt label since full content is on grounding obj
             const termBadges = (g.matched_terms || []).slice(0, 6).map(t =>
                 `<span>${escapeHtml(t)}</span>`
             ).join('');
