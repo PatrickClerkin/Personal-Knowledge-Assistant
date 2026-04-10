@@ -20,6 +20,8 @@ Endpoints:
     POST /api/study/generate      - Generate a personalised study path
     GET  /quiz                    - Quiz mode UI
     POST /api/quiz/generate       - Generate a quiz on a topic
+    GET  /conflicts               - Conflict detection UI
+    POST /api/conflicts/detect    - Detect contradictions between documents
 
 Usage:
     python -m src.web.app
@@ -37,6 +39,7 @@ from ..knowledge_graph.graph_builder import GraphBuilder
 from ..knowledge_graph.graph_store import GraphStore
 from ..study.path_generator import PathGenerator
 from ..study.quiz_generator import QuizGenerator
+from ..rag.conflict_detector import ConflictDetector
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -129,6 +132,12 @@ def study_view():
 def quiz_view():
     """Serve the quiz mode page."""
     return render_template("quiz.html")
+
+
+@app.route("/conflicts")
+def conflicts_view():
+    """Serve the conflict detection page."""
+    return render_template("conflicts.html")
 
 
 # ─── API Endpoints ──────────────────────────────────────────────────
@@ -445,6 +454,42 @@ def generate_quiz():
         return jsonify(quiz.to_dict())
     except Exception as e:
         logger.error("Quiz generation error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/conflicts/detect", methods=["POST"])
+def detect_conflicts():
+    """Detect contradictions between documents on a topic.
+
+    Request body:
+        {"topic": "neural networks"}
+
+    Returns:
+        ConflictReport as JSON with all detected conflicts.
+    """
+    rag = get_rag()
+    if rag is None:
+        return jsonify({
+            "error": "ANTHROPIC_API_KEY not set. Conflict detection requires an API key."
+        }), 503
+
+    data = request.get_json()
+    if not data or "topic" not in data:
+        return jsonify({"error": "Missing 'topic' field"}), 400
+
+    topic = data["topic"].strip()
+    if not topic:
+        return jsonify({"error": "Topic cannot be empty"}), 400
+
+    try:
+        detector = ConflictDetector(
+            knowledge_base=get_kb(),
+            llm_provider=rag.llm,
+        )
+        report = detector.detect(topic)
+        return jsonify(report.to_dict())
+    except Exception as e:
+        logger.error("Conflict detection error: %s", e)
         return jsonify({"error": str(e)}), 500
 
 

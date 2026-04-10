@@ -6,6 +6,7 @@ from .memory import ConversationMemory, ConversationTurn
 from .grounding import GroundingScorer, GroundingResult
 from .cache import SemanticCache, CacheEntry
 from .fact_verifier import FactVerifier, VerificationResult, SentenceVerdict
+from .conflict_detector import ConflictDetector, ConflictReport, Conflict
 
 
 __all__ = [
@@ -21,4 +22,7 @@ __all__ = [
     "FactVerifier",
     "VerificationResult",
     "SentenceVerdict",
+    "ConflictDetector",
+    "ConflictReport",
+    "Conflict",
 ]

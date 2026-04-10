@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PKA — Conflict Detection</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 2rem 1.5rem;
+    }
+
+    .container { max-width: 900px; margin: 0 auto; }
+
+    h1 { font-size: 1.6rem; font-weight: 600; margin-bottom: 0.2rem; }
+    .subtitle { color: #64748b; font-size: 0.88rem; margin-bottom: 2rem; }
+
+    .input-row { display: flex; gap: 0.75rem; margin-bottom: 2rem; }
+
+    input[type="text"] {
+      flex: 1;
+      padding: 0.65rem 1rem;
+      background: #1e2330;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus { border-color: #6366f1; }
+
+    button {
+      padding: 0.65rem 1.4rem;
+      background: #6366f1;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+    button:hover { background: #818cf8; }
+    button:disabled { background: #374151; cursor: not-allowed; }
+
+    #status {
+      padding: 0.75rem 1rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      margin-bottom: 1.5rem;
+      display: none;
+    }
+    #status.info  { background: #1e3a5f; color: #93c5fd; display: block; }
+    #status.error { background: #450a0a; color: #fca5a5; display: block; }
+    #status.ok    { background: #052e16; color: #4ade80; display: block; }
+
+    /* Summary bar */
+    .summary-bar {
+      background: #1e2330;
+      border: 1px solid #2d3748;
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .summary-title { font-size: 1rem; font-weight: 600; }
+
+    .summary-pills { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+    .pill {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.25rem 0.7rem;
+      border-radius: 20px;
+    }
+
+    .pill-high   { background: #450a0a44; color: #f87171; border: 1px solid #7f1d1d; }
+    .pill-medium { background: #451a0344; color: #fbbf24; border: 1px solid #92400e; }
+    .pill-low    { background: #1e3a5f44; color: #60a5fa; border: 1px solid #1e3a8a; }
+    .pill-none   { background: #052e1644; color: #4ade80; border: 1px solid #166534; }
+    .pill-meta   { background: #1e2330; color: #64748b; border: 1px solid #2d3748; }
+
+    /* Conflict cards */
+    .conflict-card {
+      background: #1e2330;
+      border: 1px solid #2d3748;
+      border-radius: 10px;
+      margin-bottom: 1.25rem;
+      overflow: hidden;
+    }
+
+    .conflict-card.high   { border-left: 4px solid #f87171; }
+    .conflict-card.medium { border-left: 4px solid #fbbf24; }
+    .conflict-card.low    { border-left: 4px solid #60a5fa; }
+
+    .conflict-header {
+      padding: 1rem 1.25rem;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .conflict-meta { flex: 1; }
+
+    .conflict-description {
+      font-size: 0.92rem;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+      color: #e2e8f0;
+    }
+
+    .conflict-sources {
+      font-size: 0.78rem;
+      color: #64748b;
+    }
+
+    .conflict-badges { display: flex; gap: 0.4rem; align-items: center; flex-shrink: 0; }
+
+    .badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+
+    .badge-high     { background: #450a0a44; color: #f87171; border: 1px solid #7f1d1d; }
+    .badge-medium   { background: #451a0344; color: #fbbf24; border: 1px solid #92400e; }
+    .badge-low      { background: #1e3a5f44; color: #60a5fa; border: 1px solid #1e3a8a; }
+    .badge-factual  { background: #2d1b6944; color: #c4b5fd; border: 1px solid #4c1d95; }
+    .badge-type     { background: #252c3d;   color: #94a3b8; border: 1px solid #2d3748; }
+
+    .toggle-icon { color: #64748b; font-size: 0.8rem; transition: transform 0.2s; }
+    .conflict-card.open .toggle-icon { transform: rotate(180deg); }
+
+    .conflict-body {
+      display: none;
+      padding: 0 1.25rem 1.25rem;
+      border-top: 1px solid #1a1f2e;
+    }
+    .conflict-card.open .conflict-body { display: block; }
+
+    .excerpts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    @media (max-width: 640px) { .excerpts-grid { grid-template-columns: 1fr; } }
+
+    .excerpt-panel {
+      background: #13151f;
+      border: 1px solid #2d3748;
+      border-radius: 6px;
+      padding: 0.9rem;
+    }
+
+    .excerpt-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+
+    .excerpt-source {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #94a3b8;
+      margin-bottom: 0.5rem;
+    }
+
+    .excerpt-text {
+      font-size: 0.82rem;
+      color: #9ca3af;
+      line-height: 1.6;
+    }
+
+    .claim-highlight {
+      margin-top: 0.6rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-style: italic;
+      line-height: 1.5;
+    }
+
+    .claim-a { background: #450a0a22; border-left: 2px solid #f87171; color: #fca5a5; }
+    .claim-b { background: #451a0322; border-left: 2px solid #fbbf24; color: #fde68a; }
+
+    .no-conflicts {
+      text-align: center;
+      padding: 3rem 2rem;
+      color: #64748b;
+      font-size: 0.9rem;
+    }
+    .no-conflicts .icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+    .no-conflicts strong { color: #4ade80; display: block; font-size: 1rem; margin-bottom: 0.25rem; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>⚡ Conflict Detection</h1>
+  <p class="subtitle">Automatically surface contradictions and disagreements between your documents</p>
+
+  <div class="input-row">
+    <input type="text" id="topicInput"
+           placeholder="Enter a topic to check for conflicts e.g. neural networks, logistic regression…"/>
+    <button id="detectBtn" onclick="detectConflicts()">Detect Conflicts</button>
+  </div>
+
+  <div id="status"></div>
+  <div id="output"></div>
+</div>
+
+<script>
+  function setStatus(msg, type) {
+    const el = document.getElementById("status");
+    el.textContent = msg;
+    el.className = type;
+  }
+
+  function clearStatus() {
+    document.getElementById("status").className = "";
+    document.getElementById("status").textContent = "";
+  }
+
+  async function detectConflicts() {
+    const topic = document.getElementById("topicInput").value.trim();
+    if (!topic) return;
+
+    const btn = document.getElementById("detectBtn");
+    btn.disabled = true;
+    btn.textContent = "Analysing…";
+    setStatus(`Scanning documents for conflicts on "${topic}"…`, "info");
+    document.getElementById("output").innerHTML = "";
+
+    try {
+      const res = await fetch("/api/conflicts/detect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        setStatus(`Error: ${data.error || "Unknown error"}`, "error");
+        return;
+      }
+
+      clearStatus();
+      renderReport(data);
+
+    } catch (err) {
+      setStatus(`Request failed: ${err.message}`, "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Detect Conflicts";
+    }
+  }
+
+  function renderReport(data) {
+    const out = document.getElementById("output");
+
+    // Summary bar
+    const totalLabel = data.total_conflicts === 0
+        ? `<span class="pill pill-none">✓ No conflicts found</span>`
+        : `<span class="pill pill-high">${data.high_count} High</span>
+           <span class="pill pill-medium">${data.medium_count} Medium</span>
+           <span class="pill pill-low">${data.low_count} Low</span>`;
+
+    out.innerHTML = `
+      <div class="summary-bar">
+        <div class="summary-title">📋 ${escapeHtml(data.topic)}</div>
+        <div class="summary-pills">
+          ${totalLabel}
+          <span class="pill pill-meta">${data.documents_analysed} docs</span>
+          <span class="pill pill-meta">${data.pairs_compared} pairs</span>
+        </div>
+      </div>`;
+
+    if (data.conflicts.length === 0) {
+      out.innerHTML += `
+        <div class="no-conflicts">
+          <div class="icon">✅</div>
+          <strong>No conflicts detected</strong>
+          Documents on this topic appear to be consistent with each other.
+        </div>`;
+      return;
+    }
+
+    data.conflicts.forEach((c, i) => {
+      const card = document.createElement("div");
+      card.className = `conflict-card ${c.severity}`;
+      card.id = `conflict-${i}`;
+
+      const pageA = c.page_a ? ` · p.${c.page_a}` : "";
+      const pageB = c.page_b ? ` · p.${c.page_b}` : "";
+
+      const typeLabel = c.conflict_type !== "none"
+          ? `<span class="badge badge-type">${escapeHtml(c.conflict_type)}</span>`
+          : "";
+
+      card.innerHTML = `
+        <div class="conflict-header" onclick="toggleCard(${i})">
+          <div class="conflict-meta">
+            <div class="conflict-description">${escapeHtml(c.description)}</div>
+            <div class="conflict-sources">
+              ${escapeHtml(c.source_a)}${pageA}
+              <span style="color:#4b5563"> vs </span>
+              ${escapeHtml(c.source_b)}${pageB}
+            </div>
+          </div>
+          <div class="conflict-badges">
+            <span class="badge badge-${c.severity}">${c.severity}</span>
+            ${typeLabel}
+            <span class="toggle-icon">▼</span>
+          </div>
+        </div>
+        <div class="conflict-body">
+          <div class="excerpts-grid">
+            <div class="excerpt-panel">
+              <div class="excerpt-label">Document A</div>
+              <div class="excerpt-source">📄 ${escapeHtml(c.source_a)}${pageA}</div>
+              <div class="excerpt-text">${escapeHtml(c.excerpt_a.substring(0, 400))}${c.excerpt_a.length > 400 ? "…" : ""}</div>
+              ${c.claim_a ? `<div class="claim-highlight claim-a">"${escapeHtml(c.claim_a)}"</div>` : ""}
+            </div>
+            <div class="excerpt-panel">
+              <div class="excerpt-label">Document B</div>
+              <div class="excerpt-source">📄 ${escapeHtml(c.source_b)}${pageB}</div>
+              <div class="excerpt-text">${escapeHtml(c.excerpt_b.substring(0, 400))}${c.excerpt_b.length > 400 ? "…" : ""}</div>
+              ${c.claim_b ? `<div class="claim-highlight claim-b">"${escapeHtml(c.claim_b)}"</div>` : ""}
+            </div>
+          </div>
+        </div>`;
+
+      out.appendChild(card);
+    });
+
+    // Auto-open first conflict
+    toggleCard(0);
+  }
+
+  function toggleCard(index) {
+    const card = document.getElementById(`conflict-${index}`);
+    if (card) card.classList.toggle("open");
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text || "";
+    return div.innerHTML;
+  }
+
+  document.getElementById("topicInput").addEventListener("keypress", e => {
+    if (e.key === "Enter") detectConflicts();
+  });
+</script>
+</body>
+</html>
