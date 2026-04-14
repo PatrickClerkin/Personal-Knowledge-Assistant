@@ -7,6 +7,7 @@ from .grounding import GroundingScorer, GroundingResult
 from .cache import SemanticCache, CacheEntry
 from .fact_verifier import FactVerifier, VerificationResult, SentenceVerdict
 from .conflict_detector import ConflictDetector, ConflictReport, Conflict
+from .query_history import QueryHistory, QueryRecord
 
 
 __all__ = [
@@ -25,4 +26,6 @@ __all__ = [
     "ConflictDetector",
     "ConflictReport",
     "Conflict",
+    "QueryHistory",
+    "QueryRecord",
 ]

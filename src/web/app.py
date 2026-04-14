@@ -24,6 +24,8 @@ Endpoints:
     POST /api/conflicts/detect    - Detect contradictions between documents
     GET  /api/summarise/<doc_id>  - Summarise a single document
     GET  /api/summarise/all       - Summarise all documents in the corpus
+    GET  /api/history             - Return recent query history
+    GET  /api/analytics           - Return aggregated query analytics
 
 Usage:
     python -m src.web.app
@@ -547,6 +549,43 @@ def summarise_document(doc_id):
     except Exception as e:
         logger.error("Summarisation error: %s", e)
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/history")
+def get_history():
+    """Return recent query history.
+
+    Query params:
+        n: Number of recent records to return (default 20).
+
+    Returns:
+        List of recent QueryRecord dicts, most recent first.
+    """
+    rag = get_rag()
+    if rag is None:
+        return jsonify({"records": [], "total": 0})
+
+    n = int(request.args.get("n", 20))
+    records = rag.history.get_recent(n)
+    return jsonify({
+        "total": rag.history.total_queries,
+        "records": [r.to_dict() for r in records],
+    })
+
+
+@app.route("/api/analytics")
+def get_analytics():
+    """Return aggregated query analytics.
+
+    Returns:
+        Analytics dict with confidence distribution, cache hit rate,
+        token usage, top sources, and queries by day.
+    """
+    rag = get_rag()
+    if rag is None:
+        return jsonify({"error": "RAG pipeline not initialised"}), 503
+
+    return jsonify(rag.history.get_analytics())
 
 
 def create_app() -> Flask:

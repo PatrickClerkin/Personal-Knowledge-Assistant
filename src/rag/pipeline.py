@@ -15,8 +15,9 @@ grounded in the knowledge base. The pipeline:
 7. Scores answer grounding — if confidence is low, reformulates the
    query and retries retrieval automatically (Adaptive Re-Retrieval).
 8. Fact-verifies each sentence of the answer against source chunks.
-9. Stores the result in the semantic cache for future queries.
-10. Maintains a sliding-window conversation memory for follow-ups.
+9. Records the query to persistent history and analytics.
+10. Stores the result in the semantic cache for future queries.
+11. Maintains a sliding-window conversation memory for follow-ups.
 
 Design Pattern: Mediator Pattern — the pipeline coordinates
 between the KnowledgeBase, LLMProvider, and optional
@@ -31,6 +32,7 @@ from .memory import ConversationMemory, ConversationTurn
 from .grounding import GroundingScorer, GroundingResult
 from .cache import SemanticCache
 from .fact_verifier import FactVerifier, VerificationResult
+from .query_history import QueryHistory, QueryRecord
 from ..ingestion.knowledge_base import KnowledgeBase
 from ..ingestion.storage.vector_store import SearchResult
 from ..utils.logger import get_logger
@@ -122,6 +124,7 @@ class RAGPipeline:
         - Automatic query rewriting for coherent follow-up retrieval.
         - Answer grounding: per-chunk confidence scores post-generation.
         - Sentence-level fact verification against source chunks.
+        - Persistent query history and analytics.
         - Optional reranking and query expansion.
         - Optional hybrid BM25+FAISS retrieval.
         - Configurable context window and system prompt.
@@ -134,7 +137,7 @@ class RAGPipeline:
         response = rag.query("What is dependency injection?")
         print(response.answer)
         print(f"Cache hit: {response.cache_hit}")
-        print(f"Confidence: {response.confidence}, Attempts: {response.retrieval_attempts}")
+        print(f"Confidence: {response.confidence}")
     """
 
     def __init__(
@@ -174,6 +177,7 @@ class RAGPipeline:
         self._grounder = GroundingScorer()
         self._cache = SemanticCache(threshold=cache_threshold) if use_cache else None
         self._verifier = FactVerifier() if verify_facts else None
+        self._history = QueryHistory()
 
     def query(
         self,
@@ -196,8 +200,9 @@ class RAGPipeline:
         6. Score grounding — if confidence < threshold, reformulate
            and retry retrieval up to max_retries times.
         7. Fact-verify each sentence against source chunks.
-        8. Store result in cache.
-        9. Return the best result found.
+        8. Record query to persistent history.
+        9. Store result in cache.
+        10. Return the best result found.
 
         Args:
             question: The user's question.
@@ -352,6 +357,20 @@ class RAGPipeline:
             verification=verification,
         )
 
+        # Record to persistent query history
+        self._history.record(QueryRecord(
+            query=question,
+            answer_preview=response.answer[:200],
+            confidence=best_confidence,
+            cache_hit=response.cache_hit,
+            retrieval_attempts=attempts,
+            input_tokens=best_llm_response.usage.get("input_tokens", 0),
+            output_tokens=best_llm_response.usage.get("output_tokens", 0),
+            sources=list({r.chunk.source_doc_title for r in best_results}),
+            verification_score=verification.overall_verification_score
+                if verification else None,
+        ))
+
         # Store result in semantic cache for future similar queries
         if self._cache is not None:
             self._cache.store(question, response)
@@ -372,6 +391,11 @@ class RAGPipeline:
     def cache_stats(self) -> Optional[dict]:
         """Return semantic cache statistics, or None if cache disabled."""
         return self._cache.stats if self._cache is not None else None
+
+    @property
+    def history(self) -> QueryHistory:
+        """Return the persistent query history tracker."""
+        return self._history
 
     # ─── Private helpers ────────────────────────────────────────────
 
