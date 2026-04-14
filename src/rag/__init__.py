@@ -8,6 +8,7 @@ from .cache import SemanticCache, CacheEntry
 from .fact_verifier import FactVerifier, VerificationResult, SentenceVerdict
 from .conflict_detector import ConflictDetector, ConflictReport, Conflict
 from .query_history import QueryHistory, QueryRecord
+from .annotations import AnnotationStore, Annotation
 
 
 __all__ = [
@@ -28,4 +29,6 @@ __all__ = [
     "Conflict",
     "QueryHistory",
     "QueryRecord",
+    "AnnotationStore",
+    "Annotation",
 ]

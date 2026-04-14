@@ -28,6 +28,10 @@ Endpoints:
     GET  /api/analytics               - Return aggregated query analytics
     GET  /api/similarity/<doc_id>     - Find documents similar to a given doc
     GET  /api/similarity/matrix       - Full pairwise similarity matrix
+    POST /api/annotations             - Add a note to a chunk
+    GET  /api/annotations             - List/search annotations
+    DELETE /api/annotations/<id>      - Delete an annotation
+    GET  /api/annotations/stats       - Annotation statistics
 
 Usage:
     python -m src.web.app
@@ -48,6 +52,7 @@ from ..study.path_generator import PathGenerator
 from ..study.quiz_generator import QuizGenerator
 from ..study.summariser import DocumentSummariser
 from ..rag.conflict_detector import ConflictDetector
+from ..rag.annotations import AnnotationStore
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -68,9 +73,10 @@ UPLOAD_DIR = Path("data/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB limit
 
-# Lazy-initialised knowledge base
+# Lazy-initialised singletons
 _kb = None
 _rag = None
+_annotations = None
 
 
 def get_kb() -> KnowledgeBase:
@@ -99,6 +105,14 @@ def get_rag():
         )
         logger.info("RAG pipeline initialised.")
     return _rag
+
+
+def get_annotations() -> AnnotationStore:
+    """Get or create the AnnotationStore singleton."""
+    global _annotations
+    if _annotations is None:
+        _annotations = AnnotationStore()
+    return _annotations
 
 
 def _grounding_label(score: float) -> str:
@@ -634,6 +648,109 @@ def document_similarity(doc_id):
     except Exception as e:
         logger.error("Similarity error: %s", e)
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/annotations/stats")
+def annotation_stats():
+    """Return annotation statistics.
+
+    Returns:
+        Stats dict with total, top tags, top documents.
+    """
+    return jsonify(get_annotations().get_stats())
+
+
+@app.route("/api/annotations", methods=["POST"])
+def add_annotation():
+    """Add a note to a chunk.
+
+    Request body:
+        {
+            "chunk_id": "...",
+            "doc_id": "...",
+            "source_title": "...",
+            "note": "...",
+            "chunk_preview": "...",
+            "page_number": 3,
+            "tags": ["important", "review"]
+        }
+
+    Returns:
+        The created Annotation as JSON.
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    for f in ["chunk_id", "doc_id", "source_title", "note"]:
+        if f not in data:
+            return jsonify({"error": f"Missing field: {f}"}), 400
+
+    note = data["note"].strip()
+    if not note:
+        return jsonify({"error": "Note cannot be empty"}), 400
+
+    try:
+        annotation = get_annotations().add(
+            chunk_id=data["chunk_id"],
+            doc_id=data["doc_id"],
+            source_title=data["source_title"],
+            note=note,
+            chunk_preview=data.get("chunk_preview", ""),
+            page_number=data.get("page_number"),
+            tags=data.get("tags", []),
+        )
+        return jsonify(annotation.to_dict()), 201
+    except Exception as e:
+        logger.error("Annotation error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/annotations")
+def list_annotations():
+    """Return recent annotations.
+
+    Query params:
+        limit: Number of annotations to return (default 50).
+        doc_id: Filter by document ID.
+        tag: Filter by tag.
+        q: Free-text search query.
+
+    Returns:
+        {"annotations": [...], "total": N}
+    """
+    store = get_annotations()
+    doc_id = request.args.get("doc_id")
+    tag = request.args.get("tag")
+    query = request.args.get("q")
+    limit = int(request.args.get("limit", 50))
+
+    if doc_id:
+        results = store.get_by_doc(doc_id)
+    elif tag:
+        results = store.get_by_tag(tag)
+    elif query:
+        results = store.search(query)
+    else:
+        results = store.get_all(limit=limit)
+
+    return jsonify({
+        "annotations": [a.to_dict() for a in results[:limit]],
+        "total": store.total_annotations,
+    })
+
+
+@app.route("/api/annotations/<annotation_id>", methods=["DELETE"])
+def delete_annotation(annotation_id):
+    """Delete an annotation by ID.
+
+    Returns:
+        {"deleted": true} or 404.
+    """
+    deleted = get_annotations().delete(annotation_id)
+    if deleted:
+        return jsonify({"deleted": True, "annotation_id": annotation_id})
+    return jsonify({"error": "Annotation not found"}), 404
 
 
 def create_app() -> Flask:
