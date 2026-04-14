@@ -5,27 +5,29 @@ Provides HTTP endpoints for document ingestion, semantic search,
 knowledge base management, and RAG-powered Q&A.
 
 Endpoints:
-    GET  /api/health              - Health check
-    GET  /api/info                - Index statistics
-    POST /api/search              - Semantic search
-    POST /api/ingest              - Ingest a document (file upload)
-    POST /api/chat                - RAG-powered question answering
-    GET  /api/documents           - List indexed documents
-    DELETE /api/documents/<id>    - Delete a document
-    GET  /dashboard               - Evaluation dashboard UI
-    GET  /api/evaluation/run      - Run IR evaluation and return metrics
-    GET  /graph                   - Knowledge graph visualisation UI
-    GET  /api/graph               - Knowledge graph data as JSON
-    GET  /study                   - Study mode UI
-    POST /api/study/generate      - Generate a personalised study path
-    GET  /quiz                    - Quiz mode UI
-    POST /api/quiz/generate       - Generate a quiz on a topic
-    GET  /conflicts               - Conflict detection UI
-    POST /api/conflicts/detect    - Detect contradictions between documents
-    GET  /api/summarise/<doc_id>  - Summarise a single document
-    GET  /api/summarise/all       - Summarise all documents in the corpus
-    GET  /api/history             - Return recent query history
-    GET  /api/analytics           - Return aggregated query analytics
+    GET  /api/health                  - Health check
+    GET  /api/info                    - Index statistics
+    POST /api/search                  - Semantic search
+    POST /api/ingest                  - Ingest a document (file upload)
+    POST /api/chat                    - RAG-powered question answering
+    GET  /api/documents               - List indexed documents
+    DELETE /api/documents/<id>        - Delete a document
+    GET  /dashboard                   - Evaluation dashboard UI
+    GET  /api/evaluation/run          - Run IR evaluation and return metrics
+    GET  /graph                       - Knowledge graph visualisation UI
+    GET  /api/graph                   - Knowledge graph data as JSON
+    GET  /study                       - Study mode UI
+    POST /api/study/generate          - Generate a personalised study path
+    GET  /quiz                        - Quiz mode UI
+    POST /api/quiz/generate           - Generate a quiz on a topic
+    GET  /conflicts                   - Conflict detection UI
+    POST /api/conflicts/detect        - Detect contradictions between documents
+    GET  /api/summarise/<doc_id>      - Summarise a single document
+    GET  /api/summarise/all           - Summarise all documents in the corpus
+    GET  /api/history                 - Return recent query history
+    GET  /api/analytics               - Return aggregated query analytics
+    GET  /api/similarity/<doc_id>     - Find documents similar to a given doc
+    GET  /api/similarity/matrix       - Full pairwise similarity matrix
 
 Usage:
     python -m src.web.app
@@ -38,6 +40,7 @@ from pathlib import Path
 from flask import Flask, request, jsonify, render_template, send_from_directory
 
 from ..ingestion.knowledge_base import KnowledgeBase
+from ..ingestion.similarity import DocumentSimilarity
 from ..evaluation.evaluator import EvaluationSuite
 from ..knowledge_graph.graph_builder import GraphBuilder
 from ..knowledge_graph.graph_store import GraphStore
@@ -586,6 +589,51 @@ def get_analytics():
         return jsonify({"error": "RAG pipeline not initialised"}), 503
 
     return jsonify(rag.history.get_analytics())
+
+
+@app.route("/api/similarity/matrix")
+def similarity_matrix():
+    """Compute full pairwise similarity matrix for all documents.
+
+    Returns:
+        SimilarityMatrix with document metadata and NxN scores.
+    """
+    kb = get_kb()
+    try:
+        ds = DocumentSimilarity(knowledge_base=kb)
+        matrix = ds.compute_matrix()
+        return jsonify(matrix.to_dict())
+    except Exception as e:
+        logger.error("Similarity matrix error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/similarity/<doc_id>")
+def document_similarity(doc_id):
+    """Find documents most similar to a given document.
+
+    Query params:
+        top_k: Number of results to return (default 5).
+
+    Returns:
+        List of SimilarityResult dicts sorted by similarity descending.
+    """
+    kb = get_kb()
+    top_k = int(request.args.get("top_k", 5))
+
+    try:
+        ds = DocumentSimilarity(knowledge_base=kb)
+        results = ds.find_similar(doc_id, top_k=top_k)
+        ref_chunks = kb.get_document_chunks(doc_id)
+        ref_title = ref_chunks[0].source_doc_title if ref_chunks else doc_id
+        return jsonify({
+            "doc_id": doc_id,
+            "title": ref_title,
+            "similar": [r.to_dict() for r in results],
+        })
+    except Exception as e:
+        logger.error("Similarity error: %s", e)
+        return jsonify({"error": str(e)}), 500
 
 
 def create_app() -> Flask:
