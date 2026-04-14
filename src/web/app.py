@@ -22,6 +22,8 @@ Endpoints:
     POST /api/quiz/generate       - Generate a quiz on a topic
     GET  /conflicts               - Conflict detection UI
     POST /api/conflicts/detect    - Detect contradictions between documents
+    GET  /api/summarise/<doc_id>  - Summarise a single document
+    GET  /api/summarise/all       - Summarise all documents in the corpus
 
 Usage:
     python -m src.web.app
@@ -39,6 +41,7 @@ from ..knowledge_graph.graph_builder import GraphBuilder
 from ..knowledge_graph.graph_store import GraphStore
 from ..study.path_generator import PathGenerator
 from ..study.quiz_generator import QuizGenerator
+from ..study.summariser import DocumentSummariser
 from ..rag.conflict_detector import ConflictDetector
 from ..utils.logger import get_logger
 
@@ -404,7 +407,6 @@ def generate_study_path():
         return jsonify({"error": "Topic cannot be empty"}), 400
 
     try:
-        # Load knowledge graph if available for concept expansion
         store = GraphStore()
         graph = store.load() if store.exists() else None
 
@@ -490,6 +492,60 @@ def detect_conflicts():
         return jsonify(report.to_dict())
     except Exception as e:
         logger.error("Conflict detection error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/summarise/all")
+def summarise_all():
+    """Summarise all documents in the knowledge base.
+
+    Returns:
+        CorpusSummary as JSON with per-document summaries
+        and a corpus-level overview.
+    """
+    rag = get_rag()
+    if rag is None:
+        return jsonify({
+            "error": "ANTHROPIC_API_KEY not set. Summarisation requires an API key."
+        }), 503
+
+    try:
+        summariser = DocumentSummariser(
+            knowledge_base=get_kb(),
+            llm_provider=rag.llm,
+        )
+        corpus = summariser.summarise_corpus()
+        return jsonify(corpus.to_dict())
+    except Exception as e:
+        logger.error("Corpus summarisation error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/summarise/<doc_id>")
+def summarise_document(doc_id):
+    """Summarise a single document by doc_id.
+
+    Returns:
+        DocumentSummary as JSON with executive summary,
+        section summaries, and key points.
+    """
+    rag = get_rag()
+    if rag is None:
+        return jsonify({
+            "error": "ANTHROPIC_API_KEY not set. Summarisation requires an API key."
+        }), 503
+
+    try:
+        summariser = DocumentSummariser(
+            knowledge_base=get_kb(),
+            llm_provider=rag.llm,
+        )
+        summary = summariser.summarise_document(doc_id)
+        if summary is None:
+            return jsonify({"error": f"No chunks found for document: {doc_id}"}), 404
+        return jsonify(summary.to_dict())
+    except Exception as e:
+        logger.error("Summarisation error: %s", e)
         return jsonify({"error": str(e)}), 500
 
 
