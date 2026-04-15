@@ -25,6 +25,7 @@ reranker/query expander without them knowing about each other.
 """
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 from .llm import LLMProvider, Message, LLMResponse
@@ -125,6 +126,7 @@ class RAGPipeline:
         - Answer grounding: per-chunk confidence scores post-generation.
         - Sentence-level fact verification against source chunks.
         - Persistent query history and analytics.
+        - Persistent conversation memory across restarts.
         - Optional reranking and query expansion.
         - Optional hybrid BM25+FAISS retrieval.
         - Configurable context window and system prompt.
@@ -151,6 +153,7 @@ class RAGPipeline:
         expand_query: Optional[str] = None,
         hybrid: bool = False,
         memory_window: int = 3,
+        memory_persist_path: Optional[Path] = None,
         ground_answer: bool = True,
         use_hyde: bool = True,
         adaptive_retrieval: bool = True,
@@ -173,7 +176,10 @@ class RAGPipeline:
         self.adaptive_retrieval = adaptive_retrieval
         self.confidence_threshold = confidence_threshold
         self.max_retries = max_retries
-        self.memory = ConversationMemory(window_size=memory_window)
+        self.memory = ConversationMemory(
+            window_size=memory_window,
+            persist_path=memory_persist_path,
+        )
         self._grounder = GroundingScorer()
         self._cache = SemanticCache(threshold=cache_threshold) if use_cache else None
         self._verifier = FactVerifier() if verify_facts else None
@@ -327,7 +333,7 @@ class RAGPipeline:
                 verification.unverified_count,
             )
 
-        # Record this turn in memory
+        # Record this turn in memory (persists automatically)
         self.memory.add_turn(
             question=question,
             answer=best_llm_response.content,

@@ -11,6 +11,8 @@ Endpoints:
     POST /api/ingest                  - Ingest a document (file upload)
     POST /api/chat                    - RAG-powered question answering
     POST /api/chat/stream             - Streaming RAG chat (Server-Sent Events)
+    GET  /api/conversation            - Return current conversation turns
+    POST /api/conversation/clear      - Clear conversation memory
     GET  /api/documents               - List indexed documents
     DELETE /api/documents/<id>        - Delete a document
     GET  /dashboard                   - Evaluation dashboard UI
@@ -109,8 +111,9 @@ def get_rag():
             hybrid=True,
             top_k=8,
             max_context_chars=16000,
+            memory_persist_path=Path("data/memory/conversation.json"),
         )
-        logger.info("RAG pipeline initialised with reranking and hybrid search.")
+        logger.info("RAG pipeline initialised with reranking, hybrid search, and persistent memory.")
     return _rag
 
 
@@ -263,6 +266,7 @@ def ingest():
     if not file.filename:
         return jsonify({"error": "Empty filename"}), 400
 
+    # Save uploaded file
     save_path = UPLOAD_DIR / file.filename
     file.save(str(save_path))
 
@@ -397,7 +401,6 @@ def chat_stream():
 
             # ── Step 3: Retrieve ──────────────────────────────────────
             results = rag._retrieve(hyde_query or retrieval_query, top_k)
-
             if not results:
                 yield f"data: {json.dumps({'type': 'error', 'message': 'No relevant documents found. Try ingesting more documents first.'})}\n\n"
                 return
@@ -436,11 +439,8 @@ def chat_stream():
             if rag._verifier and results:
                 verification = rag._verifier.verify(full_answer, results)
 
-            # ── Step 7: Update conversation memory ────────────────────
-            rag.memory.add_turn(
-                question=question,
-                answer=full_answer,
-            )
+            # ── Step 7: Update conversation memory (persists auto) ────
+            rag.memory.add_turn(question=question, answer=full_answer)
 
             # ── Step 8: Record to query history ───────────────────────
             rag._history.record(QueryRecord(
@@ -517,6 +517,40 @@ def chat_stream():
     )
 
 
+@app.route("/api/conversation")
+def get_conversation():
+    """Return all current conversation turns for display on page load.
+
+    Returns:
+        {"turns": [{"question": "...", "answer": "...", "timestamp": "..."}],
+         "total": N}
+    """
+    rag = get_rag()
+    if rag is None:
+        return jsonify({"turns": [], "total": 0})
+
+    turns = rag.memory.turns
+    return jsonify({
+        "turns": [t.to_dict() for t in turns],
+        "total": len(turns),
+    })
+
+
+@app.route("/api/conversation/clear", methods=["POST"])
+def clear_conversation():
+    """Clear conversation memory and start a fresh chat.
+
+    Returns:
+        {"cleared": true}
+    """
+    rag = get_rag()
+    if rag is None:
+        return jsonify({"cleared": True})
+
+    rag.clear_history()
+    return jsonify({"cleared": True})
+
+
 @app.route("/api/documents")
 def list_documents():
     """List all indexed documents with chunk counts."""
@@ -544,7 +578,12 @@ def delete_document(doc_id):
 
 @app.route("/api/evaluation/run")
 def run_evaluation():
-    """Run IR evaluation and return metrics as JSON."""
+    """Run IR evaluation and return metrics as JSON.
+
+    Query params:
+        path: Path to test queries JSON file
+              (default: data/eval/test_queries.json)
+    """
     queries_path = request.args.get("path", "data/eval/test_queries.json")
     kb = get_kb()
     suite = EvaluationSuite(knowledge_base=kb, top_k=5)
@@ -561,7 +600,11 @@ def run_evaluation():
 
 @app.route("/api/graph")
 def get_graph():
-    """Build or return the cached knowledge graph as JSON."""
+    """Build or return the cached knowledge graph as JSON.
+
+    Query params:
+        rebuild: If 'true', forces a full rebuild from the index.
+    """
     store = GraphStore()
     rebuild = request.args.get("rebuild", "false").lower() == "true"
 
@@ -591,7 +634,14 @@ def get_graph():
 
 @app.route("/api/study/generate", methods=["POST"])
 def generate_study_path():
-    """Generate a personalised study path for a topic."""
+    """Generate a personalised study path for a topic.
+
+    Request body:
+        {"topic": "neural networks"}
+
+    Returns:
+        StudyPath as JSON with ordered sections, summaries, sources.
+    """
     rag = get_rag()
     if rag is None:
         return jsonify({
@@ -625,7 +675,14 @@ def generate_study_path():
 
 @app.route("/api/quiz/generate", methods=["POST"])
 def generate_quiz():
-    """Generate a quiz on a topic from knowledge base content."""
+    """Generate a quiz on a topic from knowledge base content.
+
+    Request body:
+        {"topic": "neural networks"}
+
+    Returns:
+        Quiz as JSON with MCQ and short answer questions.
+    """
     rag = get_rag()
     if rag is None:
         return jsonify({
@@ -654,7 +711,14 @@ def generate_quiz():
 
 @app.route("/api/conflicts/detect", methods=["POST"])
 def detect_conflicts():
-    """Detect contradictions between documents on a topic."""
+    """Detect contradictions between documents on a topic.
+
+    Request body:
+        {"topic": "neural networks"}
+
+    Returns:
+        ConflictReport as JSON with all detected conflicts.
+    """
     rag = get_rag()
     if rag is None:
         return jsonify({
@@ -683,7 +747,12 @@ def detect_conflicts():
 
 @app.route("/api/summarise/all")
 def summarise_all():
-    """Summarise all documents in the knowledge base."""
+    """Summarise all documents in the knowledge base.
+
+    Returns:
+        CorpusSummary as JSON with per-document summaries
+        and a corpus-level overview.
+    """
     rag = get_rag()
     if rag is None:
         return jsonify({
@@ -704,7 +773,12 @@ def summarise_all():
 
 @app.route("/api/summarise/<doc_id>")
 def summarise_document(doc_id):
-    """Summarise a single document by doc_id."""
+    """Summarise a single document by doc_id.
+
+    Returns:
+        DocumentSummary as JSON with executive summary,
+        section summaries, and key points.
+    """
     rag = get_rag()
     if rag is None:
         return jsonify({
@@ -727,7 +801,14 @@ def summarise_document(doc_id):
 
 @app.route("/api/history")
 def get_history():
-    """Return recent query history."""
+    """Return recent query history.
+
+    Query params:
+        n: Number of recent records to return (default 20).
+
+    Returns:
+        List of recent QueryRecord dicts, most recent first.
+    """
     rag = get_rag()
     if rag is None:
         return jsonify({"records": [], "total": 0})
@@ -742,7 +823,12 @@ def get_history():
 
 @app.route("/api/analytics")
 def get_analytics():
-    """Return aggregated query analytics."""
+    """Return aggregated query analytics.
+
+    Returns:
+        Analytics dict with confidence distribution, cache hit rate,
+        token usage, top sources, and queries by day.
+    """
     rag = get_rag()
     if rag is None:
         return jsonify({"error": "RAG pipeline not initialised"}), 503
@@ -752,7 +838,11 @@ def get_analytics():
 
 @app.route("/api/similarity/matrix")
 def similarity_matrix():
-    """Compute full pairwise similarity matrix for all documents."""
+    """Compute full pairwise similarity matrix for all documents.
+
+    Returns:
+        SimilarityMatrix with document metadata and NxN scores.
+    """
     kb = get_kb()
     try:
         ds = DocumentSimilarity(knowledge_base=kb)
@@ -765,7 +855,14 @@ def similarity_matrix():
 
 @app.route("/api/similarity/<doc_id>")
 def document_similarity(doc_id):
-    """Find documents most similar to a given document."""
+    """Find documents most similar to a given document.
+
+    Query params:
+        top_k: Number of results to return (default 5).
+
+    Returns:
+        List of SimilarityResult dicts sorted by similarity descending.
+    """
     kb = get_kb()
     top_k = int(request.args.get("top_k", 5))
 
@@ -786,13 +883,32 @@ def document_similarity(doc_id):
 
 @app.route("/api/annotations/stats")
 def annotation_stats():
-    """Return annotation statistics."""
+    """Return annotation statistics.
+
+    Returns:
+        Stats dict with total, top tags, top documents.
+    """
     return jsonify(get_annotations().get_stats())
 
 
 @app.route("/api/annotations", methods=["POST"])
 def add_annotation():
-    """Add a note to a chunk."""
+    """Add a note to a chunk.
+
+    Request body:
+        {
+            "chunk_id": "...",
+            "doc_id": "...",
+            "source_title": "...",
+            "note": "...",
+            "chunk_preview": "...",
+            "page_number": 3,
+            "tags": ["important", "review"]
+        }
+
+    Returns:
+        The created Annotation as JSON.
+    """
     data = request.get_json()
     if not data:
         return jsonify({"error": "No data provided"}), 400
@@ -823,7 +939,17 @@ def add_annotation():
 
 @app.route("/api/annotations")
 def list_annotations():
-    """Return recent annotations."""
+    """Return recent annotations.
+
+    Query params:
+        limit: Number of annotations to return (default 50).
+        doc_id: Filter by document ID.
+        tag: Filter by tag.
+        q: Free-text search query.
+
+    Returns:
+        {"annotations": [...], "total": N}
+    """
     store = get_annotations()
     doc_id = request.args.get("doc_id")
     tag = request.args.get("tag")
@@ -847,7 +973,11 @@ def list_annotations():
 
 @app.route("/api/annotations/<annotation_id>", methods=["DELETE"])
 def delete_annotation(annotation_id):
-    """Delete an annotation by ID."""
+    """Delete an annotation by ID.
+
+    Returns:
+        {"deleted": true} or 404.
+    """
     deleted = get_annotations().delete(annotation_id)
     if deleted:
         return jsonify({"deleted": True, "annotation_id": annotation_id})

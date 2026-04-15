@@ -331,6 +331,10 @@
 
     <!-- CHAT -->
     <div class="view active" id="view-chat">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1.5rem;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0">
+        <span style="font-size:0.75rem;color:var(--text-dim)" id="chatTurnCount"></span>
+        <button class="btn btn-ghost" style="font-size:0.78rem;padding:0.3rem 0.85rem;height:auto" onclick="clearConversation()" id="newChatBtn" title="Start a fresh conversation">✦ New Chat</button>
+      </div>
       <div class="chat-messages" id="chatMessages">
         <div class="chat-msg assistant">
           <div class="msg-bubble">
@@ -711,6 +715,9 @@ async function sendChat() {
             streamBubble.innerHTML = html;
             chatMessages.scrollTop = chatMessages.scrollHeight;
           }
+          // Update turn counter
+          const tc = document.getElementById('chatTurnCount');
+          if (tc) { const cur = parseInt(tc.textContent) || 0; updateTurnCount(cur + 1); }
 
         } else if (event.type === 'error') {
           if (tw.parentNode) tw.remove();
@@ -1147,10 +1154,61 @@ async function deleteNote(annotationId) {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   CONVERSATION PERSISTENCE
+═══════════════════════════════════════════════════════════ */
+async function loadConversationHistory() {
+  try {
+    const data = await (await fetch('/api/conversation')).json();
+    const turns = data.turns || [];
+    if (turns.length === 0) return;
+
+    // Remove welcome message and render history
+    const welcome = chatMessages.querySelector('.chat-msg.assistant');
+    if (welcome) welcome.remove();
+
+    turns.forEach(t => {
+      appendMsg('user', esc(t.question));
+      const bubble = appendMsg('assistant', marked.parse(t.answer));
+      // Add a subtle restored indicator
+      const tag = document.createElement('div');
+      tag.style.cssText = 'font-size:0.68rem;color:var(--text-dim);margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid var(--border)';
+      const ts = t.timestamp ? new Date(t.timestamp).toLocaleString('en-IE', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+      tag.textContent = `↩ restored · ${ts}`;
+      bubble.appendChild(tag);
+    });
+
+    updateTurnCount(turns.length);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  } catch(e) {
+    // Silently fail — history just won't load
+  }
+}
+
+function updateTurnCount(n) {
+  const el = document.getElementById('chatTurnCount');
+  if (el) el.textContent = n > 0 ? `${n} turn${n === 1 ? '' : 's'} in memory` : '';
+}
+
+async function clearConversation() {
+  try {
+    await fetch('/api/conversation/clear', {method: 'POST'});
+    // Clear the chat UI
+    chatMessages.innerHTML = `<div class="chat-msg assistant">
+      <div class="msg-bubble">
+        <p>👋 Welcome to your <strong>Personal Knowledge Assistant</strong>. I'm powered by a sophisticated RAG pipeline with hybrid search, HyDE retrieval, adaptive re-retrieval, and sentence-level fact verification.</p>
+        <p style="margin-top:0.5rem">Ask me anything about your ingested documents.</p>
+      </div>
+    </div>`;
+    updateTurnCount(0);
+  } catch(e) {}
+}
+
+/* ═══════════════════════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════════════════════ */
 function updateTime(){const el=document.getElementById('tb-time');el.style.display='block';el.textContent=new Date().toLocaleTimeString('en-IE',{hour:'2-digit',minute:'2-digit'})}
 updateTime(); setInterval(updateTime,30000);
+loadConversationHistory();
 </script>
 </body>
 </html>
