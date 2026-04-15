@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Generator, List, Optional
 
 from ..utils.logger import get_logger
 
@@ -53,7 +53,8 @@ class LLMProvider(ABC):
     """Abstract base class for LLM providers.
 
     Implementations must provide a generate() method that takes
-    a prompt and optional conversation history.
+    a prompt and optional conversation history. A default stream_generate()
+    is provided that falls back to non-streaming generate().
     """
 
     @abstractmethod
@@ -83,6 +84,33 @@ class LLMProvider(ABC):
     def is_available(self) -> bool:
         """Check if the provider is configured and ready."""
         pass
+
+    def stream_generate(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        history: Optional[List[Message]] = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.3,
+    ) -> Generator[dict, None, None]:
+        """Stream tokens from the LLM as they are generated.
+
+        Default implementation falls back to non-streaming generate(),
+        yielding the full response as a single token chunk. Subclasses
+        should override this for true token-by-token streaming.
+
+        Yields:
+            {"type": "token", "text": str} for each text chunk.
+            {"type": "usage", "input_tokens": int, "output_tokens": int}
+                as the final event once generation is complete.
+        """
+        response = self.generate(prompt, system, history, max_tokens, temperature)
+        yield {"type": "token", "text": response.content}
+        yield {
+            "type": "usage",
+            "input_tokens": response.usage.get("input_tokens", 0),
+            "output_tokens": response.usage.get("output_tokens", 0),
+        }
 
 
 class ClaudeProvider(LLMProvider):
@@ -144,17 +172,8 @@ class ClaudeProvider(LLMProvider):
                 "ANTHROPIC_API_KEY not set. Export it or pass api_key."
             )
 
-        # Build messages array
-        messages = []
-        if history:
-            for msg in history:
-                messages.append({
-                    "role": msg.role,
-                    "content": msg.content,
-                })
-        messages.append({"role": "user", "content": prompt})
+        messages = self._build_messages(history, prompt)
 
-        # Build API kwargs
         kwargs = {
             "model": self.model,
             "max_tokens": max_tokens,
@@ -171,7 +190,6 @@ class ClaudeProvider(LLMProvider):
 
         response = self.client.messages.create(**kwargs)
 
-        # Extract text content
         content = ""
         for block in response.content:
             if hasattr(block, "text"):
@@ -186,3 +204,71 @@ class ClaudeProvider(LLMProvider):
             },
             stop_reason=response.stop_reason,
         )
+
+    def stream_generate(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        history: Optional[List[Message]] = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.3,
+    ) -> Generator[dict, None, None]:
+        """Stream tokens from the Claude API as they are generated.
+
+        Uses the Anthropic SDK's streaming context manager to yield
+        text chunks token-by-token as Claude produces them.
+
+        Yields:
+            {"type": "token", "text": str} for each text chunk.
+            {"type": "usage", "input_tokens": int, "output_tokens": int}
+                as the final event once generation is complete.
+        """
+        if not self.is_available():
+            raise ValueError(
+                "ANTHROPIC_API_KEY not set. Export it or pass api_key."
+            )
+
+        messages = self._build_messages(history, prompt)
+
+        kwargs = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": messages,
+        }
+        if system:
+            kwargs["system"] = system
+
+        logger.debug(
+            "Claude streaming API call: %d messages, max_tokens=%d",
+            len(messages), max_tokens,
+        )
+
+        with self.client.messages.stream(**kwargs) as stream:
+            for text in stream.text_stream:
+                yield {"type": "token", "text": text}
+
+            final = stream.get_final_message()
+            yield {
+                "type": "usage",
+                "input_tokens": final.usage.input_tokens,
+                "output_tokens": final.usage.output_tokens,
+            }
+
+    # ─── Private helpers ────────────────────────────────────────────
+
+    def _build_messages(
+        self,
+        history: Optional[List[Message]],
+        prompt: str,
+    ) -> list:
+        """Build the messages array for the API call."""
+        messages = []
+        if history:
+            for msg in history:
+                messages.append({
+                    "role": msg.role,
+                    "content": msg.content,
+                })
+        messages.append({"role": "user", "content": prompt})
+        return messages
