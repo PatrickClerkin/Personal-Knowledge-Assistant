@@ -255,7 +255,8 @@ class RAGPipeline:
         for attempt in range(1 + self.max_retries):
             attempts = attempt + 1
 
-            # Retrieve
+            # Retrieve — fetch more candidates when reranking so the
+            # cross-encoder has a meaningful pool to choose from.
             results = self._retrieve(current_query, top_k)
             logger.info(
                 "Attempt %d: retrieved %d chunks for query: '%s'",
@@ -400,11 +401,17 @@ class RAGPipeline:
     # ─── Private helpers ────────────────────────────────────────────
 
     def _retrieve(self, query: str, top_k: int) -> List[SearchResult]:
-        """Run retrieval using the configured strategy."""
+        """Run retrieval using the configured strategy.
+
+        When reranking is enabled, fetch 4x the requested results so
+        the cross-encoder has a meaningful candidate pool to reorder.
+        The reranker then cuts back down to top_k.
+        """
         if self.hybrid or self.rerank or self.expand_query:
+            retrieval_k = top_k * 4 if self.rerank else top_k
             return self.kb.advanced_search(
                 query,
-                top_k=top_k,
+                top_k=retrieval_k,
                 rerank=self.rerank,
                 expand_query=self.expand_query,
                 hybrid=self.hybrid,

@@ -29,7 +29,7 @@ class CrossEncoderReranker:
         top_k: Number of results to return after reranking.
     """
 
-    DEFAULT_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    DEFAULT_MODEL = "cross-encoder/ms-marco-MiniLM-L-12-v2"
 
     def __init__(
         self,

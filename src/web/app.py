@@ -102,8 +102,11 @@ def get_rag():
         _rag = RAGPipeline(
             knowledge_base=get_kb(),
             llm_provider=ClaudeProvider(),
+            rerank=True,
+            hybrid=True,
+            top_k=5,
         )
-        logger.info("RAG pipeline initialised.")
+        logger.info("RAG pipeline initialised with reranking and hybrid search.")
     return _rag
 
 
@@ -330,7 +333,7 @@ def list_documents():
         documents.append({
             "doc_id": doc_id,
             "title": chunks[0].source_doc_title if chunks else "Unknown",
-            "num_chunks": len(chunks),
+            "chunk_count": len(chunks),
         })
     return jsonify({"documents": documents})
 
@@ -642,7 +645,7 @@ def document_similarity(doc_id):
         ref_title = ref_chunks[0].source_doc_title if ref_chunks else doc_id
         return jsonify({
             "doc_id": doc_id,
-            "title": ref_title,
+            "query_title": ref_title,
             "similar": [r.to_dict() for r in results],
         })
     except Exception as e:
