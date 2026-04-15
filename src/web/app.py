@@ -104,7 +104,8 @@ def get_rag():
             llm_provider=ClaudeProvider(),
             rerank=True,
             hybrid=True,
-            top_k=5,
+            top_k=8,
+            max_context_chars=16000,
         )
         logger.info("RAG pipeline initialised with reranking and hybrid search.")
     return _rag
@@ -287,7 +288,7 @@ def chat():
     try:
         response = rag.query(
             data["question"],
-            top_k=data.get("top_k", 5),
+            top_k=data.get("top_k", 8),
         )
         return jsonify({
             "answer": response.answer,
