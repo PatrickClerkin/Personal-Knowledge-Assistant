@@ -17,7 +17,17 @@ logger = get_logger(__name__)
 
 
 class KnowledgeBase:
-    """High-level API: ingest, search (semantic / hybrid / advanced)."""
+    """High-level API for the Personal Knowledge Assistant.
+
+    Coordinates parsing (DocumentManager), chunking (ChunkManager),
+    embedding (EmbeddingService), storage (FAISS + BM25), NER
+    annotation, and document versioning (DocumentRegistry) behind
+    a single interface.
+
+    Supports semantic search, hybrid BM25+FAISS retrieval, advanced
+    search with reranking and query expansion, and document lifecycle
+    management (ingest, update, delete, persist).
+    """
 
     def __init__(self, index_path=None, embedding_model="all-MiniLM-L6-v2",
                  chunk_strategy="sentence", chunk_size=512, chunk_overlap=50):
