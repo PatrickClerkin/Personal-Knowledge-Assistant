@@ -14,6 +14,12 @@ This enables:
 Design Pattern: Strategy Pattern — the similarity computation
 (cosine) is isolated so it can be swapped without touching the
 rest of the pipeline.
+
+Performance: Document embeddings are cached in-memory after the
+first computation. The cache is invalidated when a document is
+deleted or re-ingested. For the pairwise similarity matrix,
+embeddings are computed once and the full NxN matrix is produced
+via a single matrix multiplication.
 """
 
 from dataclasses import dataclass
@@ -78,6 +84,11 @@ class DocumentSimilarity:
     Averages chunk embeddings per document into a single document
     vector, then uses cosine similarity for comparison.
 
+    Document embeddings are cached after the first computation to
+    avoid redundant re-embedding on repeated calls. Call
+    ``invalidate_cache()`` or ``invalidate_document()`` after
+    ingesting or deleting documents.
+
     Args:
         knowledge_base: The KnowledgeBase to read documents from.
         embedder: EmbeddingService for query embedding. If None,
@@ -91,9 +102,22 @@ class DocumentSimilarity:
     ):
         self.kb = knowledge_base
         self._embedder = embedder or EmbeddingService()
+        self._embedding_cache: Dict[str, np.ndarray] = {}
+
+    def invalidate_cache(self) -> None:
+        """Clear all cached document embeddings."""
+        self._embedding_cache.clear()
+        logger.debug("Document embedding cache cleared.")
+
+    def invalidate_document(self, doc_id: str) -> None:
+        """Remove a single document from the embedding cache."""
+        self._embedding_cache.pop(doc_id, None)
 
     def get_document_embedding(self, doc_id: str) -> Optional[np.ndarray]:
         """Compute a document-level embedding by averaging chunk embeddings.
+
+        Results are cached — subsequent calls for the same doc_id
+        return the cached vector without re-computing.
 
         If chunks already have embeddings stored (from ingest), uses
         those directly. Otherwise re-embeds from content.
@@ -104,6 +128,10 @@ class DocumentSimilarity:
         Returns:
             Averaged embedding vector, or None if no chunks found.
         """
+        # Check cache first
+        if doc_id in self._embedding_cache:
+            return self._embedding_cache[doc_id]
+
         chunks = self.kb.get_document_chunks(doc_id)
         if not chunks:
             return None
@@ -116,7 +144,11 @@ class DocumentSimilarity:
                 emb = self._embedder.embed_text(chunk.content)
                 embeddings.append(emb)
 
-        return np.mean(embeddings, axis=0)
+        doc_embedding = np.mean(embeddings, axis=0)
+
+        # Cache for future lookups
+        self._embedding_cache[doc_id] = doc_embedding
+        return doc_embedding
 
     def find_similar(
         self,
@@ -155,7 +187,9 @@ class DocumentSimilarity:
 
             similarity = self._cosine_similarity(ref_embedding, other_embedding)
             other_chunks = self.kb.get_document_chunks(other_id)
-            other_title = other_chunks[0].source_doc_title if other_chunks else other_id
+            other_title = (
+                other_chunks[0].source_doc_title if other_chunks else other_id
+            )
 
             results.append(SimilarityResult(
                 doc_id=other_id,
@@ -210,21 +244,27 @@ class DocumentSimilarity:
     def compute_matrix(self) -> SimilarityMatrix:
         """Compute full pairwise similarity matrix for all documents.
 
+        Uses vectorised matrix multiplication for efficiency: computes
+        all N document embeddings once, normalises them, then produces
+        the full NxN similarity matrix in a single matmul operation.
+
         Returns:
             SimilarityMatrix with document metadata and NxN matrix.
         """
         doc_ids = self.kb.document_ids
         logger.info("Computing similarity matrix for %d documents", len(doc_ids))
 
-        # Build document embeddings
-        embeddings: Dict[str, np.ndarray] = {}
+        # Build document embeddings and metadata
+        valid_ids = []
+        embedding_list = []
         doc_meta = []
 
         for doc_id in doc_ids:
             emb = self.get_document_embedding(doc_id)
             if emb is None:
                 continue
-            embeddings[doc_id] = emb
+            valid_ids.append(doc_id)
+            embedding_list.append(emb)
             chunks = self.kb.get_document_chunks(doc_id)
             title = chunks[0].source_doc_title if chunks else doc_id
             doc_meta.append({
@@ -233,22 +273,26 @@ class DocumentSimilarity:
                 "chunk_count": len(chunks),
             })
 
-        valid_ids = [d["doc_id"] for d in doc_meta]
+        if not embedding_list:
+            return SimilarityMatrix(
+                documents=[], matrix=[], doc_ids=[],
+            )
 
-        # Build NxN matrix
+        # Vectorised pairwise cosine similarity via matrix multiplication
+        embeddings = np.array(embedding_list, dtype=np.float32)
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        norms = np.where(norms == 0, 1.0, norms)  # avoid division by zero
+        normalised = embeddings / norms
+
+        # NxN similarity matrix in one matmul
+        sim_matrix = np.dot(normalised, normalised.T)
+
+        # Convert to rounded Python list
         n = len(valid_ids)
-        matrix = [[0.0] * n for _ in range(n)]
-
-        for i, id_a in enumerate(valid_ids):
-            for j, id_b in enumerate(valid_ids):
-                if i == j:
-                    matrix[i][j] = 1.0
-                elif j > i:
-                    sim = float(self._cosine_similarity(
-                        embeddings[id_a], embeddings[id_b]
-                    ))
-                    matrix[i][j] = round(sim, 4)
-                    matrix[j][i] = round(sim, 4)
+        matrix = [
+            [round(float(sim_matrix[i][j]), 4) for j in range(n)]
+            for i in range(n)
+        ]
 
         logger.info("Similarity matrix computed: %dx%d", n, n)
         return SimilarityMatrix(

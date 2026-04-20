@@ -1,1 +1,1 @@
-"""Web interface: Flask REST API and frontend."""
+"""Flask Blueprints for the Personal Knowledge Assistant API."""
