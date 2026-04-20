@@ -550,5 +550,127 @@
     ],
     "timestamp": "2026-04-20T15:02:54.413300+00:00",
     "verification_score": 0.8
+  },
+  {
+    "query": "What is machine learning?",
+    "answer_preview": "Based on the provided context, here's what Machine Learning (ML) is:\n\n## Definition\n\nMachine Learning is defined as **\"algorithms that automatically improve performance through experience\"** [Source: ",
+    "confidence": 0.775,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 3528,
+    "output_tokens": 558,
+    "sources": [
+      "Microsoft PowerPoint - ai_NeuralNetworks.pptx",
+      "Machine Learning Technologies Week 1 Introduction",
+      "Machine Learning Technologies Generalisation Validation"
+    ],
+    "timestamp": "2026-04-20T17:29:03.732672+00:00",
+    "verification_score": 1.0
+  },
+  {
+    "query": "What is the difference between supervised and unsupervised learning?",
+    "answer_preview": "Based on the provided context, here are the key differences between supervised and unsupervised learning:\n\n## Supervised Learning\n\n**Definition and Characteristics:**\n- **All the training data has to ",
+    "confidence": 0.636,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 4233,
+    "output_tokens": 571,
+    "sources": [
+      "Machine Learning Technologies Classification Logistic Regression",
+      "Microsoft PowerPoint - ai_NeuralNetworks.pptx",
+      "Machine Learning Technologies Week 1 Introduction",
+      "Machine Learning Technologies Generalisation Validation"
+    ],
+    "timestamp": "2026-04-20T17:29:41.665281+00:00",
+    "verification_score": 1.0
+  },
+  {
+    "query": "How does backpropagation work?",
+    "answer_preview": "Based on the provided context, here's how backpropagation works:\n\n## Overview\n\nBackpropagation is a learning algorithm for multilayer neural networks that uses **gradient descent to minimize error by ",
+    "confidence": 0.6961,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 3287,
+    "output_tokens": 792,
+    "sources": [
+      "Microsoft PowerPoint - ai_NeuralNetworks.pptx"
+    ],
+    "timestamp": "2026-04-20T17:30:26.235327+00:00",
+    "verification_score": 0.9
+  },
+  {
+    "query": "What is overfitting in machine learning?",
+    "answer_preview": "Based on the provided context, here's what overfitting is in machine learning:\n\n## Definition\n\n**Overfitting occurs when a statistical model or machine learning algorithm captures the noise of the dat",
+    "confidence": 0.7473,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 3257,
+    "output_tokens": 628,
+    "sources": [
+      "Machine Learning Technologies Generalisation Validation"
+    ],
+    "timestamp": "2026-04-20T17:31:07.447866+00:00",
+    "verification_score": 1.0
+  },
+  {
+    "query": "What is the role of activation functions in neural networks?",
+    "answer_preview": "Based on the provided context, here's the role of activation functions in neural networks:\n\n## Primary Function\n\n**The activation function in a neuron determines how the neuron processes its input and",
+    "confidence": 0.6359,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 3554,
+    "output_tokens": 844,
+    "sources": [
+      "Microsoft PowerPoint - ai_NeuralNetworks.pptx"
+    ],
+    "timestamp": "2026-04-20T17:31:53.930893+00:00",
+    "verification_score": 0.6875
+  },
+  {
+    "query": "What is a convolutional neural network used for?",
+    "answer_preview": "Based on the provided context, I can see that **Convolutional Neural Networks (CNNs) are mentioned as part of a project component in the assessment** [Source: Machine Learning Technologies Week 1 Intr",
+    "confidence": 0.5204,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 3779,
+    "output_tokens": 280,
+    "sources": [
+      "Microsoft PowerPoint - ai_NeuralNetworks.pptx",
+      "Machine Learning Technologies Week 1 Introduction"
+    ],
+    "timestamp": "2026-04-20T17:32:30.726896+00:00",
+    "verification_score": 0.4
+  },
+  {
+    "query": "What is gradient descent?",
+    "answer_preview": "Based on the provided context, here's what gradient descent is:\n\n## Definition and Core Concept\n\n**Gradient descent is an algorithm used to minimize error by finding the lowest point on the error surf",
+    "confidence": 0.6232,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 3089,
+    "output_tokens": 646,
+    "sources": [
+      "Machine Learning Technologies Week 1 Introduction",
+      "Microsoft PowerPoint - ai_NeuralNetworks.pptx",
+      "Machine Learning Technologies Generalisation Validation"
+    ],
+    "timestamp": "2026-04-20T17:32:59.715364+00:00",
+    "verification_score": 0.7857
+  },
+  {
+    "query": "What is a loss function?",
+    "answer_preview": "Based on the provided context, here's what a loss function is:\n\n## Definition and Purpose\n\n**A Loss Function compares expected values from the training set with predicted values from the NN** [Source:",
+    "confidence": 0.5753,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 3308,
+    "output_tokens": 856,
+    "sources": [
+      "Machine Learning Technologies Classification Logistic Regression",
+      "Microsoft PowerPoint - ai_NeuralNetworks.pptx",
+      "Machine Learning Technologies Week 1 Introduction"
+    ],
+    "timestamp": "2026-04-20T17:33:37.843555+00:00",
+    "verification_score": 0.6667
   }
 ]
