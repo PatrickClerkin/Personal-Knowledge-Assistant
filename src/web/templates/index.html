@@ -474,8 +474,8 @@
     <div class="view" id="view-dashboard">
       <div class="view-inner">
         <div class="section-header">
-          <div><div class="section-title">📊 Evaluation Dashboard</div><div class="section-desc">IR metrics for your retrieval pipeline</div></div>
-          <button class="btn btn-primary" onclick="runEvaluation()" id="evalBtn" style="margin-left:auto">▶ Run Evaluation</button>
+          <div><div class="section-title">📊 Evaluation Dashboard</div><div class="section-desc">Two-layer evaluation: IR metrics for retrieval, RAGAS-style metrics for answer quality</div></div>
+          <button class="btn btn-primary" onclick="runEvaluation()" id="evalBtn" style="margin-left:auto">▶ Run IR Evaluation</button>
         </div>
         <div id="evalStatus"></div>
         <div class="metric-grid" id="metricGrid" style="display:none">
@@ -499,6 +499,41 @@
               <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--text-muted)">nDCG@5</th>
             </tr></thead>
             <tbody id="evalTableBody"></tbody>
+          </table>
+        </div>
+
+        <!-- ─── Answer Evaluation (RAGAS-style) ─── -->
+        <div class="section-header" style="margin-top:2.5rem;padding-top:1.5rem;border-top:1px solid var(--border)">
+          <div><div class="section-title">🎯 Answer Evaluation (RAGAS-style)</div><div class="section-desc">LLM-as-judge evaluation of the full RAG pipeline — runs each question end-to-end and scores the generated answers (Es et al., 2023)</div></div>
+          <button class="btn btn-primary" onclick="runAnswerEvaluation()" id="answerBtn" style="margin-left:auto;background:#7c3aed">▶ Run Answer Evaluation</button>
+        </div>
+        <div style="font-size:0.8rem;color:var(--amber);margin-bottom:1rem;padding:0.6rem 0.9rem;background:rgba(251,191,36,0.08);border-left:3px solid var(--amber);border-radius:4px">
+          ⚠ Each run costs ~7 Claude API calls per question (an 8-question run is ~56 calls, roughly $0.20). Synchronous — expect 2–5 minutes of wall-clock time.
+        </div>
+        <div id="answerStatus"></div>
+        <div class="metric-grid" id="answerMetricGrid" style="display:none">
+          <div class="metric-card"><div class="metric-label">Questions</div><div class="metric-value blue" id="m-a-queries">—</div></div>
+          <div class="metric-card"><div class="metric-label">Faithfulness</div><div class="metric-value green" id="m-a-faith">—</div></div>
+          <div class="metric-card"><div class="metric-label">Answer Relevancy</div><div class="metric-value amber" id="m-a-relev">—</div></div>
+          <div class="metric-card"><div class="metric-label">Context Precision</div><div class="metric-value purple" id="m-a-ctxp">—</div></div>
+          <div class="metric-card"><div class="metric-label">RAGAS Composite</div><div class="metric-value green" id="m-a-composite">—</div></div>
+        </div>
+        <div class="charts-grid" id="answerChartsGrid" style="display:none">
+          <div class="chart-card"><h3>Metric Averages</h3><canvas id="answerBarChart"></canvas></div>
+          <div class="chart-card"><h3>Per-Question RAGAS Score</h3><canvas id="answerLineChart"></canvas></div>
+        </div>
+        <div class="card" id="answerTableCard" style="display:none">
+          <div class="card-title">Per-Question Breakdown</div>
+          <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+            <thead><tr style="border-bottom:1px solid var(--border)">
+              <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--text-muted)">#</th>
+              <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--text-muted)">Question</th>
+              <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--text-muted)">Faith</th>
+              <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--text-muted)">Relev</th>
+              <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--text-muted)">CtxP</th>
+              <th style="text-align:left;padding:0.5rem 0.75rem;color:var(--text-muted)">RAGAS</th>
+            </tr></thead>
+            <tbody id="answerTableBody"></tbody>
           </table>
         </div>
       </div>
@@ -1055,6 +1090,41 @@ function renderEval(data) {
   lineChart=new Chart(document.getElementById('lineChart'),{type:'line',data:{labels:data.query_results.map((_,i)=>`Q${i+1}`),datasets:[{data:data.query_results.map(r=>r.ndcg_at_5),borderColor:'#3ecf8e',backgroundColor:'rgba(62,207,142,0.08)',pointBackgroundColor:'#3ecf8e',tension:0.3,fill:true}]},options:chartOpts});
   const col=v=>v>=0.6?'var(--green)':v>=0.3?'var(--amber)':'var(--red)';
   document.getElementById('evalTableBody').innerHTML=data.query_results.map((r,i)=>`<tr style="border-bottom:1px solid var(--border)"><td style="padding:0.5rem 0.75rem;color:var(--text-dim);font-family:'DM Mono',monospace;font-size:0.78rem">${i+1}</td><td style="padding:0.5rem 0.75rem;font-size:0.82rem">${esc(r.query.length>55?r.query.slice(0,55)+'…':r.query)}</td><td style="padding:0.5rem 0.75rem;font-family:'DM Mono',monospace;font-size:0.78rem;color:${col(r.precision_at_5)}">${r.precision_at_5.toFixed(3)}</td><td style="padding:0.5rem 0.75rem;font-family:'DM Mono',monospace;font-size:0.78rem;color:${col(r.mrr)}">${r.mrr.toFixed(3)}</td><td style="padding:0.5rem 0.75rem;font-family:'DM Mono',monospace;font-size:0.78rem;color:${col(r.ndcg_at_5)}">${r.ndcg_at_5.toFixed(3)}</td></tr>`).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ANSWER EVALUATION (RAGAS-style)
+═══════════════════════════════════════════════════════════ */
+let answerBarChart=null,answerLineChart=null;
+
+async function runAnswerEvaluation() {
+  const confirmed=confirm("This will run the full RAG pipeline against each test case and call Claude ~7 times per question. A typical 8-question run costs ~$0.20 on Sonnet and takes 2–5 minutes.\n\nContinue?");
+  if(!confirmed) return;
+  const btn=document.getElementById('answerBtn'),status=document.getElementById('answerStatus');
+  btn.disabled=true; btn.textContent='Running…'; status.innerHTML=`<div class="status-msg status-info">Running answer evaluation — this takes 2–5 minutes. Do not refresh.</div>`;
+  ['answerMetricGrid','answerChartsGrid','answerTableCard'].forEach(id=>document.getElementById(id).style.display='none');
+  try {
+    const data=await (await fetch('/api/evaluation/answer')).json();
+    if(data.error){status.innerHTML=`<div class="status-msg status-error">${esc(data.error)}</div>`;return;}
+    let msg=`✓ Evaluated ${data.num_queries} questions. Composite RAGAS: ${data.mean_ragas_score.toFixed(3)}.`;
+    if(data.errors&&data.errors.length>0) msg+=` ${data.errors.length} skipped due to errors.`;
+    status.innerHTML=`<div class="status-msg status-info">${esc(msg)}</div>`;
+    renderAnswerEval(data);
+  } catch(e){status.innerHTML=`<div class="status-msg status-error">${esc(e.message)}</div>`;}
+  finally{btn.disabled=false;btn.textContent='▶ Run Answer Evaluation';}
+}
+
+function renderAnswerEval(data) {
+  document.getElementById('m-a-queries').textContent=data.num_queries;
+  [['m-a-faith',data.mean_faithfulness],['m-a-relev',data.mean_answer_relevancy],['m-a-ctxp',data.mean_context_precision],['m-a-composite',data.mean_ragas_score]].forEach(([id,v])=>{const el=document.getElementById(id);el.textContent=v.toFixed(3);el.className=`metric-value ${metricColour(v)}`});
+  document.getElementById('answerMetricGrid').style.display='grid'; document.getElementById('answerChartsGrid').style.display='grid'; document.getElementById('answerTableCard').style.display='block';
+  const chartOpts={plugins:{legend:{display:false}},scales:{y:{min:0,max:1,ticks:{color:'#6b7f99'},grid:{color:'#1e2a3a'}},x:{ticks:{color:'#6b7f99'},grid:{display:false}}}};
+  if(answerBarChart) answerBarChart.destroy();
+  answerBarChart=new Chart(document.getElementById('answerBarChart'),{type:'bar',data:{labels:['Faithfulness','Relevancy','Ctx Precision','Composite'],datasets:[{data:[data.mean_faithfulness,data.mean_answer_relevancy,data.mean_context_precision,data.mean_ragas_score],backgroundColor:['#4f9eff','#a78bfa','#3ecf8e','#f59e0b'],borderRadius:6}]},options:chartOpts});
+  if(answerLineChart) answerLineChart.destroy();
+  answerLineChart=new Chart(document.getElementById('answerLineChart'),{type:'line',data:{labels:data.results.map((_,i)=>`Q${i+1}`),datasets:[{data:data.results.map(r=>r.ragas_score),borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,0.08)',pointBackgroundColor:'#f59e0b',tension:0.3,fill:true}]},options:chartOpts});
+  const col=v=>v>=0.6?'var(--green)':v>=0.3?'var(--amber)':'var(--red)';
+  document.getElementById('answerTableBody').innerHTML=data.results.map((r,i)=>`<tr style="border-bottom:1px solid var(--border)"><td style="padding:0.5rem 0.75rem;color:var(--text-dim);font-family:'DM Mono',monospace;font-size:0.78rem">${i+1}</td><td style="padding:0.5rem 0.75rem;font-size:0.82rem">${esc(r.question.length>50?r.question.slice(0,50)+'…':r.question)}</td><td style="padding:0.5rem 0.75rem;font-family:'DM Mono',monospace;font-size:0.78rem;color:${col(r.faithfulness)}">${r.faithfulness.toFixed(3)}</td><td style="padding:0.5rem 0.75rem;font-family:'DM Mono',monospace;font-size:0.78rem;color:${col(r.answer_relevancy)}">${r.answer_relevancy.toFixed(3)}</td><td style="padding:0.5rem 0.75rem;font-family:'DM Mono',monospace;font-size:0.78rem;color:${col(r.context_precision)}">${r.context_precision.toFixed(3)}</td><td style="padding:0.5rem 0.75rem;font-family:'DM Mono',monospace;font-size:0.78rem;color:${col(r.ragas_score)}">${r.ragas_score.toFixed(3)}</td></tr>`).join('');
 }
 
 /* ═══════════════════════════════════════════════════════════
