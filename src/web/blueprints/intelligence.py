@@ -2,13 +2,15 @@
 Intelligence API blueprint — knowledge graph, conflicts, similarity, evaluation.
 """
 
+import json
 from pathlib import Path
 
 from flask import Blueprint, request, jsonify
 
 from . import shared
-from ...ingestion.similarity import DocumentSimilarity
+from ...evaluation.answer_eval import AnswerEvaluator
 from ...evaluation.evaluator import EvaluationSuite
+from ...ingestion.similarity import DocumentSimilarity
 from ...knowledge_graph.graph_builder import GraphBuilder
 from ...knowledge_graph.graph_store import GraphStore
 from ...rag.conflict_detector import ConflictDetector
@@ -164,3 +166,143 @@ def run_evaluation():
     except Exception as e:
         logger.error("Evaluation error: %s", e)
         return jsonify({"error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------
+# Answer evaluation (RAGAS-style)
+# ---------------------------------------------------------------------
+
+
+def _load_answer_test_set(path: Path) -> list:
+    """Load a JSONL answer-evaluation test set, validating each row.
+
+    Each non-empty line must be a JSON object with at least the keys
+    ``question`` and ``ground_truth``. Blank lines are skipped.
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+        ValueError: If the file contains invalid JSON or a row is
+            missing a required field.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"Test set not found: {path}")
+
+    cases: list = []
+    with path.open(encoding="utf-8") as fh:
+        for lineno, line in enumerate(fh, start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                obj = json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Invalid JSON on line {lineno} of {path.name}: {exc}"
+                ) from exc
+            if not isinstance(obj, dict):
+                raise ValueError(
+                    f"Line {lineno}: expected a JSON object"
+                )
+            if "question" not in obj or "ground_truth" not in obj:
+                raise ValueError(
+                    f"Line {lineno}: missing 'question' or 'ground_truth'"
+                )
+            cases.append(obj)
+    return cases
+
+
+@intelligence_bp.route("/api/evaluation/answer")
+def run_answer_evaluation():
+    """Run RAGAS-style answer evaluation against the full RAG pipeline.
+
+    For each test case, the pipeline is queried, the answer and
+    retrieved contexts are collected, and the ``AnswerEvaluator``
+    scores the result on three metrics: faithfulness, answer
+    relevancy, and context precision.  A composite RAGAS score is
+    computed as the harmonic mean of the three.
+
+    Query params:
+        path: Path to a JSONL test set
+              (default: data/eval/sample_test_set.jsonl).
+              Each line must be a JSON object with ``question`` and
+              ``ground_truth`` fields.
+        top_k: Override the pipeline's top_k for retrieval (default 8).
+
+    Path traversal protection: only files within data/eval/ are allowed.
+
+    Cost: roughly 7 Claude API calls per test case, so an 8-question
+    run is ~56 calls (~$0.20 on Sonnet).  This endpoint is
+    synchronous — expect 2–5 minutes of wall-clock time for a full
+    run.
+    """
+    rag = shared.get_rag()
+    if rag is None:
+        return jsonify({
+            "error": "ANTHROPIC_API_KEY not set. "
+                     "Answer evaluation requires an API key."
+        }), 503
+
+    # --- validate & resolve the test-set path -------------------------
+    test_set_path = request.args.get(
+        "path", "data/eval/sample_test_set.jsonl"
+    )
+    resolved = Path(test_set_path).resolve()
+    if not str(resolved).startswith(str(_EVAL_BASE_DIR)):
+        return jsonify({
+            "error": "Invalid path: test sets must be in data/eval/"
+        }), 400
+
+    try:
+        cases = _load_answer_test_set(resolved)
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    if not cases:
+        return jsonify({"error": "Test set is empty"}), 400
+
+    try:
+        top_k = int(request.args.get("top_k", rag.top_k))
+    except ValueError:
+        return jsonify({"error": "Invalid top_k (must be an integer)"}), 400
+    if top_k < 1:
+        return jsonify({"error": "top_k must be >= 1"}), 400
+
+    # --- run the evaluator -------------------------------------------
+    kb = shared.get_kb()
+    evaluator = AnswerEvaluator(
+        llm_provider=rag.llm,
+        embedding_service=kb._embedder,  # share to avoid reloading MiniLM
+    )
+
+    results = []
+    errors = []
+    for case in cases:
+        question = case["question"]
+        ground_truth = case["ground_truth"]
+        try:
+            rag_response = rag.query(question, top_k=top_k)
+            contexts = [r.chunk.content for r in rag_response.sources]
+            result = evaluator.evaluate(
+                question=question,
+                answer=rag_response.answer,
+                contexts=contexts,
+                ground_truth=ground_truth,
+            )
+            results.append(result)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Answer-eval failed on %r: %s", question, exc)
+            errors.append({"question": question, "error": str(exc)})
+
+    if not results:
+        return jsonify({
+            "error": "No test cases were successfully evaluated",
+            "errors": errors,
+        }), 500
+
+    report = evaluator.aggregate(results)
+    payload = report.to_dict()
+    payload["errors"] = errors
+    payload["test_set"] = str(resolved.name)
+    return jsonify(payload)

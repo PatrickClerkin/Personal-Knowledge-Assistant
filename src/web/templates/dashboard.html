@@ -19,11 +19,18 @@
     h1 { font-size: 1.6rem; font-weight: 600; margin-bottom: 0.25rem; }
     .subtitle { color: #94a3b8; font-size: 0.9rem; margin-bottom: 2rem; }
 
+    .section-divider {
+      margin: 3rem 0 1.5rem 0;
+      padding-top: 2rem;
+      border-top: 1px solid #2d3748;
+    }
+    .section-divider h1 { font-size: 1.35rem; }
+
     .controls {
       display: flex;
       gap: 0.75rem;
       align-items: center;
-      margin-bottom: 2rem;
+      margin-bottom: 1.5rem;
       flex-wrap: wrap;
     }
 
@@ -50,6 +57,19 @@
     }
     button:hover { background: #2563eb; }
     button:disabled { background: #374151; cursor: not-allowed; }
+
+    button.secondary { background: #7c3aed; }
+    button.secondary:hover { background: #6d28d9; }
+
+    .cost-warning {
+      font-size: 0.8rem;
+      color: #fbbf24;
+      margin-bottom: 1rem;
+      padding: 0.6rem 0.9rem;
+      background: rgba(251, 191, 36, 0.08);
+      border-left: 3px solid #fbbf24;
+      border-radius: 4px;
+    }
 
     .stat-grid {
       display: grid;
@@ -112,26 +132,28 @@
     .badge.mid   { background: #451a03; color: #fbbf24; }
     .badge.poor  { background: #450a0a; color: #f87171; }
 
-    #status {
+    #status, #answerStatus {
       margin-bottom: 1.5rem;
       padding: 0.75rem 1rem;
       border-radius: 6px;
       font-size: 0.88rem;
       display: none;
     }
-    #status.info    { background: #1e3a5f; color: #93c5fd; display: block; }
-    #status.error   { background: #450a0a; color: #fca5a5; display: block; }
+    #status.info, #answerStatus.info    { background: #1e3a5f; color: #93c5fd; display: block; }
+    #status.error, #answerStatus.error  { background: #450a0a; color: #fca5a5; display: block; }
   </style>
 </head>
 <body>
 
+  <!-- ═══════════ IR Evaluation ═══════════ -->
+
   <h1>📊 Evaluation Dashboard</h1>
-  <p class="subtitle">IR metrics for the Personal Knowledge Assistant retrieval pipeline</p>
+  <p class="subtitle">Retrieval (IR) metrics for the Personal Knowledge Assistant</p>
 
   <div class="controls">
     <input type="text" id="queryPath" value="data/eval/test_queries.json"
            placeholder="Path to test_queries.json" />
-    <button id="runBtn" onclick="runEvaluation()">▶ Run Evaluation</button>
+    <button id="runBtn" onclick="runEvaluation()">▶ Run IR Evaluation</button>
   </div>
 
   <div id="status"></div>
@@ -183,9 +205,90 @@
     </table>
   </div>
 
+  <!-- ═══════════ RAGAS-style Answer Evaluation ═══════════ -->
+
+  <div class="section-divider">
+    <h1>🎯 Answer Evaluation (RAGAS-style)</h1>
+    <p class="subtitle">
+      LLM-as-judge evaluation of the full RAG pipeline. Runs each
+      question end-to-end and scores the generated answers on three
+      metrics (Es et al., 2023).
+    </p>
+  </div>
+
+  <div class="cost-warning">
+    ⚠ Each run costs ~7 Claude API calls per question (so an 8-question
+    run is ~56 calls, roughly $0.20). The endpoint is synchronous —
+    expect 2–5 minutes of wall-clock time for a full run.
+  </div>
+
+  <div class="controls">
+    <input type="text" id="answerPath" value="data/eval/sample_test_set.jsonl"
+           placeholder="Path to JSONL test set" />
+    <button id="runAnswerBtn" class="secondary" onclick="runAnswerEvaluation()">
+      ▶ Run Answer Evaluation
+    </button>
+  </div>
+
+  <div id="answerStatus"></div>
+
+  <div class="stat-grid" id="answerStatGrid" style="display:none">
+    <div class="stat-card">
+      <div class="label">Questions</div>
+      <div class="value" id="aNumQueries" style="color:#e2e8f0">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Faithfulness</div>
+      <div class="value" id="aFaith">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Answer Relevancy</div>
+      <div class="value" id="aRelev">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Context Precision</div>
+      <div class="value" id="aCtxP">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">RAGAS Composite</div>
+      <div class="value" id="aComposite">—</div>
+    </div>
+  </div>
+
+  <div class="charts-grid" id="answerChartsGrid" style="display:none">
+    <div class="chart-card">
+      <h2>METRIC AVERAGES</h2>
+      <canvas id="answerBarChart"></canvas>
+    </div>
+    <div class="chart-card">
+      <h2>PER-QUESTION RAGAS SCORE</h2>
+      <canvas id="answerLineChart"></canvas>
+    </div>
+  </div>
+
+  <div class="table-card" id="answerTableCard" style="display:none">
+    <h2>PER-QUESTION BREAKDOWN</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Question</th>
+          <th>Faith</th>
+          <th>Relev</th>
+          <th>CtxP</th>
+          <th>RAGAS</th>
+          <th>Grade</th>
+        </tr>
+      </thead>
+      <tbody id="answerTableBody"></tbody>
+    </table>
+  </div>
+
 <script>
   let barChart = null;
   let lineChart = null;
+  let answerBarChart = null;
+  let answerLineChart = null;
 
   function colorClass(v) {
     if (v >= 0.6) return "good";
@@ -193,8 +296,9 @@
     return "poor";
   }
 
-  function setStatus(msg, type) {
-    const el = document.getElementById("status");
+  function setStatus(msg, type, elementId) {
+    elementId = elementId || "status";
+    const el = document.getElementById(elementId);
     el.textContent = msg;
     el.className = type;
   }
@@ -203,6 +307,8 @@
     const avg = (p5 + mrr + ndcg) / 3;
     return colorClass(avg);
   }
+
+  // ============= IR Evaluation =============
 
   async function runEvaluation() {
     const btn = document.getElementById("runBtn");
@@ -238,7 +344,7 @@
       setStatus(`Request failed: ${err.message}`, "error");
     } finally {
       btn.disabled = false;
-      btn.textContent = "▶ Run Evaluation";
+      btn.textContent = "▶ Run IR Evaluation";
     }
   }
 
@@ -256,11 +362,6 @@
   }
 
   function renderCharts(data) {
-    const chartDefaults = {
-      color: "#94a3b8",
-      borderColor: "#2d3748",
-    };
-
     // Bar chart — aggregate metrics
     if (barChart) barChart.destroy();
     barChart = new Chart(document.getElementById("barChart"), {
@@ -333,6 +434,164 @@
           <td>${r.precision_at_5.toFixed(3)}</td>
           <td>${r.mrr.toFixed(3)}</td>
           <td>${r.ndcg_at_5.toFixed(3)}</td>
+          <td><span class="badge ${g}">${label}</span></td>
+        </tr>`;
+    });
+  }
+
+  // ============= Answer Evaluation =============
+
+  async function runAnswerEvaluation() {
+    const btn = document.getElementById("runAnswerBtn");
+    const path = document.getElementById("answerPath").value.trim();
+
+    const confirmed = confirm(
+      "This will run the full RAG pipeline against each test case and " +
+      "call Claude ~7 times per question. A typical 8-question run " +
+      "costs ~$0.20 on Sonnet and takes 2–5 minutes.\n\n" +
+      "Continue?"
+    );
+    if (!confirmed) return;
+
+    btn.disabled = true;
+    btn.textContent = "Running…";
+    setStatus(
+      "Running answer evaluation — this takes 2–5 minutes. " +
+      "Do not refresh the page.",
+      "info",
+      "answerStatus",
+    );
+
+    ["answerStatGrid", "answerChartsGrid", "answerTableCard"].forEach(id => {
+      document.getElementById(id).style.display = "none";
+    });
+
+    try {
+      const res = await fetch(`/api/evaluation/answer?path=${encodeURIComponent(path)}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        setStatus(`Error: ${data.error}`, "error", "answerStatus");
+        return;
+      }
+
+      renderAnswerStats(data);
+      renderAnswerCharts(data);
+      renderAnswerTable(data);
+
+      document.getElementById("answerStatGrid").style.display = "grid";
+      document.getElementById("answerChartsGrid").style.display = "grid";
+      document.getElementById("answerTableCard").style.display = "block";
+
+      let summary = `✓ Evaluated ${data.num_queries} questions. ` +
+                    `Composite RAGAS: ${data.mean_ragas_score.toFixed(3)}.`;
+      if (data.errors && data.errors.length > 0) {
+        summary += ` ${data.errors.length} question(s) skipped due to errors.`;
+      }
+      setStatus(summary, "info", "answerStatus");
+
+    } catch (err) {
+      setStatus(`Request failed: ${err.message}`, "error", "answerStatus");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "▶ Run Answer Evaluation";
+    }
+  }
+
+  function renderAnswerStats(data) {
+    document.getElementById("aNumQueries").textContent = data.num_queries;
+    for (const [id, val] of [
+      ["aFaith", data.mean_faithfulness],
+      ["aRelev", data.mean_answer_relevancy],
+      ["aCtxP", data.mean_context_precision],
+      ["aComposite", data.mean_ragas_score],
+    ]) {
+      const el = document.getElementById(id);
+      el.textContent = val.toFixed(3);
+      el.className = `value ${colorClass(val)}`;
+    }
+  }
+
+  function renderAnswerCharts(data) {
+    // Bar chart — aggregate metrics
+    if (answerBarChart) answerBarChart.destroy();
+    answerBarChart = new Chart(document.getElementById("answerBarChart"), {
+      type: "bar",
+      data: {
+        labels: ["Faithfulness", "Relevancy", "Ctx Precision", "Composite"],
+        datasets: [{
+          label: "Score",
+          data: [
+            data.mean_faithfulness,
+            data.mean_answer_relevancy,
+            data.mean_context_precision,
+            data.mean_ragas_score,
+          ],
+          backgroundColor: ["#3b82f6", "#8b5cf6", "#10b981", "#f59e0b"],
+          borderRadius: 6,
+        }],
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          y: {
+            min: 0, max: 1,
+            ticks: { color: "#94a3b8" },
+            grid: { color: "#1a1f2e" },
+          },
+          x: { ticks: { color: "#94a3b8" }, grid: { display: false } },
+        },
+      },
+    });
+
+    // Line chart — per-question composite
+    const labels = data.results.map((_, i) => `Q${i + 1}`);
+    const composite = data.results.map(r => r.ragas_score);
+
+    if (answerLineChart) answerLineChart.destroy();
+    answerLineChart = new Chart(document.getElementById("answerLineChart"), {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          label: "RAGAS composite",
+          data: composite,
+          borderColor: "#f59e0b",
+          backgroundColor: "rgba(245,158,11,0.1)",
+          pointBackgroundColor: "#f59e0b",
+          tension: 0.3,
+          fill: true,
+        }],
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          y: {
+            min: 0, max: 1,
+            ticks: { color: "#94a3b8" },
+            grid: { color: "#1a1f2e" },
+          },
+          x: { ticks: { color: "#94a3b8" }, grid: { display: false } },
+        },
+      },
+    });
+  }
+
+  function renderAnswerTable(data) {
+    const tbody = document.getElementById("answerTableBody");
+    tbody.innerHTML = "";
+    data.results.forEach((r, i) => {
+      const g = colorClass(r.ragas_score);
+      const label = g === "good" ? "Strong" : g === "mid" ? "Partial" : "Weak";
+      const q = r.question;
+      tbody.innerHTML += `
+        <tr>
+          <td>${i + 1}</td>
+          <td title="${q}">${q.length > 50 ? q.slice(0, 50) + "…" : q}</td>
+          <td>${r.faithfulness.toFixed(3)}</td>
+          <td>${r.answer_relevancy.toFixed(3)}</td>
+          <td>${r.context_precision.toFixed(3)}</td>
+          <td>${r.ragas_score.toFixed(3)}</td>
           <td><span class="badge ${g}">${label}</span></td>
         </tr>`;
     });
