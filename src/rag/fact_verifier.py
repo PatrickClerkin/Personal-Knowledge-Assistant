@@ -1,183 +1,274 @@
 """
-Answer fact verification at the sentence level.
+Sentence-level fact verification.
 
-After the LLM generates an answer, splits it into individual
-sentences and checks each one against the retrieved source chunks
-using term overlap. Each sentence is labelled:
+Given an LLM answer and the source chunks it was generated from,
+split the answer into individual claim sentences and check how well
+each one is semantically supported by at least one source chunk.
 
-    supported  — strong overlap with at least one source chunk
-    partial    — weak overlap, possibly grounded but uncertain
-    unverified — no meaningful overlap with any source chunk
+Each claim gets a verification status:
 
-This makes hallucinations visible: sentences the model invented
-will appear as "unverified" while grounded sentences are green.
+    supported   — strong semantic similarity to a source chunk
+    partial     — moderate similarity; the chunk is related but
+                  does not fully support the claim
+    unverified  — no chunk has enough semantic similarity to count
+                  as support
 
-Design Pattern: Extends the Strategy Pattern established by
-GroundingScorer — same term extraction logic, applied per sentence.
+The overall verification score is the proportion of claims that are
+at least partially supported, weighted so "supported" is worth more
+than "partial".
+
+Scoring method
+--------------
+Uses the shared ``EmbeddingService`` to compute cosine similarity
+between each answer sentence and each source chunk.  This replaced
+the original term-overlap approach, which consistently reported
+artificial 1.000 scores because common domain vocabulary matched
+trivially.  Embedding similarity captures paraphrases, synonyms,
+and actual semantic entailment, and produces discriminating scores
+that meaningfully separate well-supported claims from hallucinations.
+
+Thresholds
+----------
+The supported / partial / unverified cut-offs are tuned for
+``all-MiniLM-L6-v2`` sentence embeddings.  On this model:
+
+    >= 0.60   strongly supported
+    0.40..0.60 partially supported
+    <  0.40   unverified
 """
+
+from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import List, Set, Optional
+from typing import List, Optional
 
+import numpy as np
+
+from ..ingestion.embeddings.embedding_service import EmbeddingService
 from ..ingestion.storage.vector_store import SearchResult
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Stopwords shared with GroundingScorer
-_STOPWORDS: Set[str] = {
-    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to",
-    "for", "of", "with", "by", "from", "is", "are", "was", "were",
-    "be", "been", "being", "have", "has", "had", "do", "does", "did",
-    "will", "would", "could", "should", "may", "might", "it", "its",
-    "this", "that", "these", "those", "i", "you", "he", "she", "we",
-    "they", "not", "no", "as", "if", "so", "up", "out", "about",
-    "than", "then", "when", "which", "who", "what", "how", "also",
-}
+
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'`])")
+
+# Sentences shorter than this are treated as filler (e.g. "Yes." or
+# "OK.") and skipped entirely — they carry almost no semantic content
+# and would dilute the aggregate score with noise.
+_MIN_SENTENCE_LENGTH = 10
 
 
 @dataclass
-class SentenceVerdict:
+class ClaimVerification:
     """Verification result for a single answer sentence.
 
     Attributes:
-        sentence: The original sentence text.
-        status: One of 'supported', 'partial', 'unverified'.
-        best_score: Highest term overlap score across all chunks.
-        best_source: Source document with the highest overlap.
-        best_page: Page number of best source, if available.
+        claim: The sentence text.
+        status: One of "supported", "partial", "unverified".
+        score: Cosine similarity (0..1) to the best-matching source
+            chunk.
+        best_chunk_id: chunk_id of the best-matching source chunk,
+            or None if there are no sources.
+        best_chunk_preview: Short snippet of the best-matching chunk,
+            useful for UI display.
     """
-    sentence: str
-    status: str  # 'supported' | 'partial' | 'unverified'
-    best_score: float
-    best_source: Optional[str] = None
-    best_page: Optional[int] = None
+
+    claim: str
+    status: str
+    score: float
+    best_chunk_id: Optional[str] = None
+    best_chunk_preview: Optional[str] = None
+
+
+# Backwards-compat alias — earlier versions of this module exported
+# the per-sentence result as ``SentenceVerdict``.  Other modules
+# (and tests) still import that name, so keep it working.
+SentenceVerdict = ClaimVerification
 
 
 @dataclass
 class VerificationResult:
-    """Full fact verification result for an answer.
+    """Aggregate verification result for an answer.
 
     Attributes:
-        verdicts: Per-sentence verification results.
-        supported_count: Number of supported sentences.
-        partial_count: Number of partially supported sentences.
-        unverified_count: Number of unverified sentences.
-        overall_verification_score: Fraction of sentences that are
-            supported or partial.
+        claims: Per-sentence verification breakdown.
+        supported_count: Number of claims classified as "supported".
+        partial_count: Number of claims classified as "partial".
+        unverified_count: Number of claims classified as "unverified".
+        overall_verification_score: Weighted support score (0..1).
     """
-    verdicts: List[SentenceVerdict]
-    supported_count: int
-    partial_count: int
-    unverified_count: int
-    overall_verification_score: float
+
+    claims: List[ClaimVerification] = field(default_factory=list)
+    supported_count: int = 0
+    partial_count: int = 0
+    unverified_count: int = 0
+    overall_verification_score: float = 0.0
+
+    # Backwards-compat alias — tests and earlier consumers referred
+    # to per-claim results as ``verdicts``.
+    @property
+    def verdicts(self) -> List[ClaimVerification]:
+        """Alias for ``claims`` — older name for the same list."""
+        return self.claims
 
     def to_dict(self) -> dict:
-        """Serialise for JSON API response."""
+        """JSON-serialisable representation."""
         return {
+            "claims": [
+                {
+                    "claim": c.claim,
+                    "status": c.status,
+                    "score": c.score,
+                    "best_chunk_id": c.best_chunk_id,
+                    "best_chunk_preview": c.best_chunk_preview,
+                }
+                for c in self.claims
+            ],
             "supported_count": self.supported_count,
             "partial_count": self.partial_count,
             "unverified_count": self.unverified_count,
-            "overall_verification_score": round(
-                self.overall_verification_score, 4
-            ),
-            "verdicts": [
-                {
-                    "sentence": v.sentence,
-                    "status": v.status,
-                    "best_score": round(v.best_score, 4),
-                    "best_source": v.best_source,
-                    "best_page": v.best_page,
-                }
-                for v in self.verdicts
-            ],
+            "overall_verification_score": self.overall_verification_score,
         }
 
 
 class FactVerifier:
-    """Verifies answer sentences against retrieved source chunks.
+    """Verifies answer claims against source chunks using embeddings.
 
-    Splits the generated answer into sentences, then measures term
-    overlap between each sentence and every source chunk. The chunk
-    with the highest overlap determines the sentence's verdict.
+    Args:
+        embedding_service: Optional pre-built embedding service to
+            reuse.  If omitted, a new one is created with the
+            default ``all-MiniLM-L6-v2`` model.  Pass the same
+            service used by the KnowledgeBase to avoid loading the
+            model twice.
+        supported_threshold: Cosine similarity at or above which a
+            claim is considered fully supported.  Defaults to 0.60.
+        partial_threshold: Cosine similarity at or above which a
+            claim is considered partially supported.  Defaults to
+            0.40.  Anything below this is unverified.
 
-    Attributes:
-        supported_threshold: Overlap score required for 'supported'
-            (default 0.35).
-        partial_threshold: Overlap score required for 'partial'
-            (default 0.12).
-        min_term_length: Minimum characters for a term to count
-            (default 4).
-        min_sentence_words: Sentences shorter than this are skipped
-            as they carry little semantic content (default 4).
+    Raises:
+        ValueError: If either threshold is outside [0, 1] or
+            ``partial_threshold`` is greater than
+            ``supported_threshold``.
     """
+
+    DEFAULT_SUPPORTED_THRESHOLD: float = 0.60
+    DEFAULT_PARTIAL_THRESHOLD: float = 0.40
 
     def __init__(
         self,
-        supported_threshold: float = 0.35,
-        partial_threshold: float = 0.12,
-        min_term_length: int = 4,
-        min_sentence_words: int = 4,
+        embedding_service: Optional[EmbeddingService] = None,
+        supported_threshold: Optional[float] = None,
+        partial_threshold: Optional[float] = None,
     ):
-        if not 0.0 < partial_threshold < supported_threshold <= 1.0:
+        supported = (
+            supported_threshold
+            if supported_threshold is not None
+            else self.DEFAULT_SUPPORTED_THRESHOLD
+        )
+        partial = (
+            partial_threshold
+            if partial_threshold is not None
+            else self.DEFAULT_PARTIAL_THRESHOLD
+        )
+
+        if not 0.0 <= partial <= 1.0:
             raise ValueError(
-                "Thresholds must satisfy: "
-                "0 < partial_threshold < supported_threshold <= 1"
+                "partial_threshold must be between 0 and 1 inclusive"
             )
-        self.supported_threshold = supported_threshold
-        self.partial_threshold = partial_threshold
-        self.min_term_length = min_term_length
-        self.min_sentence_words = min_sentence_words
+        if not 0.0 <= supported <= 1.0:
+            raise ValueError(
+                "supported_threshold must be between 0 and 1 inclusive"
+            )
+        if partial > supported:
+            raise ValueError(
+                "partial_threshold must be <= supported_threshold"
+            )
+
+        self._embedder = embedding_service or EmbeddingService()
+        self.supported_threshold = supported
+        self.partial_threshold = partial
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def verify(
         self,
         answer: str,
         sources: List[SearchResult],
     ) -> VerificationResult:
-        """Verify each sentence of the answer against source chunks.
+        """Verify each sentence of an answer against source chunks.
 
         Args:
-            answer: The LLM-generated answer text.
-            sources: Retrieved chunks used as context.
+            answer: The full LLM-generated answer text.
+            sources: The retrieved chunks used as context.
 
         Returns:
-            VerificationResult with per-sentence verdicts.
+            A VerificationResult with per-claim breakdowns and
+            aggregate counts.  Sentences shorter than the filler
+            threshold are skipped entirely.
         """
-        if not sources:
-            return self._empty_result(answer)
+        sentences = [
+            s for s in self._split_sentences(answer)
+            if len(s) >= _MIN_SENTENCE_LENGTH
+        ]
+        if not sentences or not sources:
+            return VerificationResult()
 
-        # Pre-compute chunk term sets once
-        chunk_data = []
-        for source in sources:
-            terms = self._extract_terms(source.chunk.content)
-            chunk_data.append({
-                "terms": terms,
-                "source": source.chunk.source_doc_title,
-                "page": source.chunk.page_number,
-            })
+        # Embed answer sentences in one batch, coerce to 2-D.
+        sentence_embeddings = _as_2d(self._embedder.embed_texts(sentences))
 
-        sentences = self._split_sentences(answer)
-        verdicts = []
+        # Embed chunks, preferring pre-computed embeddings.
+        chunk_embeddings = self._collect_chunk_embeddings(sources)
+        if chunk_embeddings.size == 0:
+            return VerificationResult()
 
-        for sentence in sentences:
-            words = sentence.split()
-            if len(words) < self.min_sentence_words:
-                continue
+        sent_norm = _l2_normalise(sentence_embeddings)
+        chunk_norm = _l2_normalise(chunk_embeddings)
+        sims = sent_norm @ chunk_norm.T  # (num_sentences, num_chunks)
 
-            sent_terms = self._extract_terms(sentence)
-            if not sent_terms:
-                continue
+        claims: List[ClaimVerification] = []
+        supported = partial = unverified = 0
+        score_accumulator = 0.0
 
-            verdict = self._verify_sentence(sentence, sent_terms, chunk_data)
-            verdicts.append(verdict)
+        for i, sentence in enumerate(sentences):
+            row = sims[i]
+            best_idx = int(np.argmax(row))
+            best_score = float(max(0.0, row[best_idx]))
+            best_chunk = sources[best_idx].chunk
 
-        supported = sum(1 for v in verdicts if v.status == "supported")
-        partial = sum(1 for v in verdicts if v.status == "partial")
-        unverified = sum(1 for v in verdicts if v.status == "unverified")
-        total = len(verdicts)
+            if best_score >= self.supported_threshold:
+                status = "supported"
+                supported += 1
+                score_accumulator += 1.0
+            elif best_score >= self.partial_threshold:
+                status = "partial"
+                partial += 1
+                score_accumulator += 0.5
+            else:
+                status = "unverified"
+                unverified += 1
+                # contributes 0 to the aggregate
 
-        overall = (supported + 0.5 * partial) / total if total > 0 else 0.0
+            preview = best_chunk.content.strip().replace("\n", " ")
+            if len(preview) > 160:
+                preview = preview[:157] + "…"
+
+            claims.append(
+                ClaimVerification(
+                    claim=sentence,
+                    status=status,
+                    score=best_score,
+                    best_chunk_id=best_chunk.chunk_id,
+                    best_chunk_preview=preview,
+                )
+            )
+
+        total = len(sentences)
+        overall = score_accumulator / total if total else 0.0
 
         logger.info(
             "Fact verification: %d supported, %d partial, %d unverified "
@@ -186,94 +277,77 @@ class FactVerifier:
         )
 
         return VerificationResult(
-            verdicts=verdicts,
+            claims=claims,
             supported_count=supported,
             partial_count=partial,
             unverified_count=unverified,
-            overall_verification_score=round(overall, 4),
+            overall_verification_score=float(overall),
         )
 
-    def _verify_sentence(
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _split_sentences(text: str) -> List[str]:
+        """Split text into sentences, discarding whitespace-only entries."""
+        text = text.strip()
+        if not text:
+            return []
+        parts = _SENTENCE_SPLIT_RE.split(text)
+        return [p.strip() for p in parts if p.strip()]
+
+    def _collect_chunk_embeddings(
         self,
-        sentence: str,
-        sent_terms: Set[str],
-        chunk_data: List[dict],
-    ) -> SentenceVerdict:
-        """Find the best-matching chunk and assign a verdict."""
-        best_score = 0.0
-        best_source = None
-        best_page = None
+        sources: List[SearchResult],
+    ) -> np.ndarray:
+        """Return chunk embeddings as a 2-D array.
 
-        for cd in chunk_data:
-            score = self._overlap_score(sent_terms, cd["terms"])
-            if score > best_score:
-                best_score = score
-                best_source = cd["source"]
-                best_page = cd["page"]
+        Uses the embedding stored on the chunk if present (set during
+        ingestion) and falls back to embedding the content on the fly
+        for any chunks that are missing one.  Returns a 0-row array
+        if there are no sources.
+        """
+        if not sources:
+            return np.zeros((0, 0), dtype=np.float32)
 
-        if best_score >= self.supported_threshold:
-            status = "supported"
-        elif best_score >= self.partial_threshold:
-            status = "partial"
-        else:
-            status = "unverified"
+        missing_indices: List[int] = []
+        missing_texts: List[str] = []
+        embeddings: List[Optional[np.ndarray]] = []
 
-        return SentenceVerdict(
-            sentence=sentence,
-            status=status,
-            best_score=best_score,
-            best_source=best_source,
-            best_page=best_page,
-        )
+        for i, result in enumerate(sources):
+            emb = getattr(result.chunk, "embedding", None)
+            if emb is None:
+                embeddings.append(None)
+                missing_indices.append(i)
+                missing_texts.append(result.chunk.content)
+            else:
+                embeddings.append(np.asarray(emb, dtype=np.float32))
 
-    def _split_sentences(self, text: str) -> List[str]:
-        """Split text into sentences using punctuation boundaries."""
-        # Split on . ! ? followed by space or end of string
-        raw = re.split(r"(?<=[.!?])\s+", text.strip())
-        sentences = []
-        for s in raw:
-            s = s.strip()
-            if s:
-                sentences.append(s)
-        return sentences
+        if missing_texts:
+            filled = _as_2d(self._embedder.embed_texts(missing_texts))
+            for idx, vec in zip(missing_indices, filled):
+                embeddings[idx] = np.asarray(vec, dtype=np.float32)
 
-    def _extract_terms(self, text: str) -> Set[str]:
-        """Extract significant lowercase terms, excluding stopwords."""
-        tokens = re.findall(r"[a-zA-Z]+", text.lower())
-        return {
-            t for t in tokens
-            if len(t) >= self.min_term_length
-            and t not in _STOPWORDS
-        }
+        return np.vstack(embeddings)
 
-    def _overlap_score(
-        self,
-        sentence_terms: Set[str],
-        chunk_terms: Set[str],
-    ) -> float:
-        """Recall-oriented overlap: what fraction of sentence terms
-        appear in the chunk."""
-        if not sentence_terms:
-            return 0.0
-        overlap = len(sentence_terms & chunk_terms)
-        return overlap / len(sentence_terms)
 
-    def _empty_result(self, answer: str) -> VerificationResult:
-        """Return all-unverified result when no sources available."""
-        sentences = self._split_sentences(answer)
-        verdicts = [
-            SentenceVerdict(
-                sentence=s,
-                status="unverified",
-                best_score=0.0,
-            )
-            for s in sentences
-            if len(s.split()) >= self.min_sentence_words
-        ]
-        return VerificationResult(
-            verdicts=verdicts,
-            supported_count=0,
-            partial_count=0,
-            unverified_count=len(verdicts),
-            overall_verification_score=0.0,
-        )
+def _as_2d(arr: np.ndarray) -> np.ndarray:
+    """Coerce an embedding result into a 2-D (n, dim) array.
+
+    ``SentenceTransformer.encode`` returns 1-D for a single input and
+    2-D for a batch.  Callers always want 2-D so we can stack or
+    matrix-multiply without special-casing.
+    """
+    arr = np.asarray(arr, dtype=np.float32)
+    if arr.ndim == 1:
+        return arr.reshape(1, -1)
+    return arr
+
+
+def _l2_normalise(matrix: np.ndarray) -> np.ndarray:
+    """Row-wise L2 normalisation.  Zero rows stay zero (no NaN)."""
+    matrix = _as_2d(matrix)
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1.0, norms)
+    return matrix / norms

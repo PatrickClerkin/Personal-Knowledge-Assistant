@@ -1,146 +1,192 @@
-"""Unit tests for FactVerifier."""
+"""Tests for the embedding-based FactVerifier."""
 
+import numpy as np
 import pytest
-from unittest.mock import MagicMock
-from src.rag.fact_verifier import FactVerifier, VerificationResult, SentenceVerdict
 
-
-def _make_source(content: str, source: str = "doc", page: int = 1):
-    chunk = MagicMock()
-    chunk.content = content
-    chunk.source_doc_title = source
-    chunk.page_number = page
-    result = MagicMock()
-    result.chunk = chunk
-    result.score = 0.9
-    return result
-
-
-_RICH_CHUNK = (
-    "Neural networks are computational models inspired by the human brain. "
-    "They consist of layers of interconnected neurons that process information. "
-    "Backpropagation is the algorithm used to train neural networks by adjusting weights. "
-    "The loss function measures the difference between predicted and actual outputs."
+from src.rag.fact_verifier import (
+    FactVerifier,
+    VerificationResult,
+    ClaimVerification,
+    SentenceVerdict,  # backwards-compat alias, import should work
 )
+from src.ingestion.storage.vector_store import SearchResult
+from src.ingestion.chunking.chunk import Chunk
+
+
+def _make_chunk(chunk_id: str, content: str) -> Chunk:
+    return Chunk(
+        chunk_id=chunk_id,
+        content=content,
+        doc_id="test_doc",
+        source_doc_title="Test Doc",
+    )
+
+
+def _make_result(chunk_id: str, content: str, score: float = 0.9) -> SearchResult:
+    return SearchResult(
+        chunk=_make_chunk(chunk_id, content),
+        score=score,
+        rank=1,
+    )
 
 
 class TestFactVerifier:
+    """Exercises the embedding-based fact verifier with real embeddings."""
 
     def setup_method(self):
-        self.verifier = FactVerifier(
-            supported_threshold=0.35,
-            partial_threshold=0.12,
-        )
+        self.verifier = FactVerifier()
 
     def test_returns_verification_result(self):
-        sources = [_make_source(_RICH_CHUNK)]
-        result = self.verifier.verify("Neural networks process information.", sources)
+        sources = [_make_result("c1", "Neural networks process information using layered artificial neurons.")]
+        result = self.verifier.verify(
+            "Neural networks process information through layers.", sources
+        )
         assert isinstance(result, VerificationResult)
 
-    def test_empty_sources_returns_unverified(self):
-        result = self.verifier.verify(
-            "Neural networks are great for classification tasks.", []
-        )
-        assert result.supported_count == 0
+    def test_empty_sources_returns_empty(self):
+        result = self.verifier.verify("Some claim text here.", [])
+        assert result.claims == []
         assert result.overall_verification_score == 0.0
 
-    def test_well_grounded_sentence_is_supported(self):
-        sources = [_make_source(_RICH_CHUNK)]
-        answer = (
-            "Neural networks consist of layers of interconnected neurons "
-            "that process information using backpropagation."
-        )
-        result = self.verifier.verify(answer, sources)
-        assert any(v.status == "supported" for v in result.verdicts)
-
-    def test_unrelated_sentence_is_unverified(self):
-        sources = [_make_source(_RICH_CHUNK)]
-        answer = "The weather today is sunny and warm outside in Ireland."
-        result = self.verifier.verify(answer, sources)
-        assert all(v.status == "unverified" for v in result.verdicts)
-
-    def test_short_sentences_skipped(self):
-        sources = [_make_source(_RICH_CHUNK)]
-        result = self.verifier.verify("Yes. No. OK.", sources)
+    def test_empty_answer_returns_empty_claims(self):
+        sources = [_make_result("c1", "Some chunk content here.")]
+        result = self.verifier.verify("", sources)
+        assert len(result.claims) == 0
+        # Backwards-compat alias still works.
         assert len(result.verdicts) == 0
 
-    def test_verdict_has_required_fields(self):
-        sources = [_make_source(_RICH_CHUNK)]
-        result = self.verifier.verify(
-            "Neural networks use backpropagation to learn weights.", sources
-        )
-        for v in result.verdicts:
-            assert hasattr(v, "sentence")
-            assert hasattr(v, "status")
-            assert hasattr(v, "best_score")
-            assert v.status in ("supported", "partial", "unverified")
+    def test_well_grounded_sentence_is_supported_or_partial(self):
+        """A close paraphrase of source content should score as supported or partial."""
+        sources = [_make_result(
+            "c1",
+            "Machine learning is a subfield of artificial intelligence that enables systems to learn from data without being explicitly programmed.",
+        )]
+        answer = "Machine learning is part of AI and lets computers learn from data automatically."
+        result = self.verifier.verify(answer, sources)
+        assert len(result.claims) == 1
+        # Should be supported or partial, not unverified.
+        assert result.claims[0].status in ("supported", "partial")
 
-    def test_overall_score_between_zero_and_one(self):
-        sources = [_make_source(_RICH_CHUNK)]
+    def test_unrelated_sentence_is_unverified(self):
+        """A claim with no semantic connection to the source should be unverified."""
+        sources = [_make_result(
+            "c1",
+            "The recipe calls for two cups of flour and one cup of sugar.",
+        )]
+        answer = "Quantum entanglement is a fundamental principle of modern physics research."
+        result = self.verifier.verify(answer, sources)
+        assert len(result.claims) == 1
+        assert result.claims[0].status == "unverified"
+
+    def test_short_sentences_skipped(self):
+        """Very short 'filler' sentences should be skipped."""
+        sources = [_make_result("c1", "Some chunk content about the topic at hand.")]
+        result = self.verifier.verify("Yes. No. OK.", sources)
+        # All three are below the filler-length threshold.
+        assert len(result.claims) == 0
+
+    def test_claim_has_required_fields(self):
+        sources = [_make_result(
+            "c1",
+            "Python is a high-level general-purpose programming language.",
+        )]
         result = self.verifier.verify(
-            "Neural networks process information. "
-            "The moon is made of cheese today.",
+            "Python is a popular programming language used for general tasks.",
+            sources,
+        )
+        assert len(result.claims) >= 1
+        claim = result.claims[0]
+        assert isinstance(claim.claim, str)
+        assert claim.status in ("supported", "partial", "unverified")
+        assert 0.0 <= claim.score <= 1.0
+        assert claim.best_chunk_id == "c1"
+        assert claim.best_chunk_preview  # truthy string
+
+    def test_overall_score_in_valid_range(self):
+        sources = [_make_result(
+            "c1",
+            "Neural networks consist of layers of interconnected nodes that process information.",
+        )]
+        result = self.verifier.verify(
+            "Neural networks have layers of connected nodes. They process inputs.",
             sources,
         )
         assert 0.0 <= result.overall_verification_score <= 1.0
 
-    def test_counts_sum_to_total_verdicts(self):
-        sources = [_make_source(_RICH_CHUNK)]
-        result = self.verifier.verify(
-            "Neural networks use backpropagation. "
-            "Loss functions measure prediction error. "
-            "Bananas are yellow fruit from tropical regions.",
-            sources,
+    def test_counts_sum_to_total_claims(self):
+        sources = [_make_result(
+            "c1",
+            "Databases store structured data. SQL is used to query relational databases.",
+        )]
+        answer = (
+            "Databases hold structured data. SQL queries relational stores. "
+            "Meanwhile, bananas grow on trees in tropical climates."
         )
+        result = self.verifier.verify(answer, sources)
         total = (
             result.supported_count
             + result.partial_count
             + result.unverified_count
         )
-        assert total == len(result.verdicts)
+        assert total == len(result.claims)
 
     def test_to_dict_has_required_keys(self):
-        sources = [_make_source(_RICH_CHUNK)]
+        sources = [_make_result("c1", "Programming languages include Python, Java, and JavaScript.")]
         result = self.verifier.verify(
-            "Neural networks learn through backpropagation.", sources
+            "Python is a programming language that is widely used.",
+            sources,
         )
-        d = result.to_dict()
-        assert "supported_count" in d
-        assert "partial_count" in d
-        assert "unverified_count" in d
-        assert "overall_verification_score" in d
-        assert "verdicts" in d
+        data = result.to_dict()
+        assert "claims" in data
+        assert "supported_count" in data
+        assert "partial_count" in data
+        assert "unverified_count" in data
+        assert "overall_verification_score" in data
 
-    def test_best_source_populated_on_hit(self):
-        sources = [_make_source(_RICH_CHUNK, source="lecture_5", page=3)]
+    def test_best_chunk_is_populated(self):
+        sources = [_make_result("c1", "Python is a widely used programming language.")]
         result = self.verifier.verify(
-            "Neural networks consist of layers processing information.", sources
+            "Python is a programming language that many developers use.",
+            sources,
         )
-        supported = [v for v in result.verdicts if v.status in ("supported", "partial")]
-        if supported:
-            assert supported[0].best_source == "lecture_5"
+        assert len(result.claims) >= 1
+        assert result.claims[0].best_chunk_id == "c1"
 
     def test_invalid_thresholds_raise(self):
+        """Out-of-range or inverted thresholds must raise ValueError."""
         with pytest.raises(ValueError):
-            FactVerifier(supported_threshold=0.1, partial_threshold=0.5)
+            FactVerifier(supported_threshold=-0.1)
+        with pytest.raises(ValueError):
+            FactVerifier(supported_threshold=1.5)
+        with pytest.raises(ValueError):
+            FactVerifier(partial_threshold=-0.1)
+        with pytest.raises(ValueError):
+            FactVerifier(partial_threshold=1.5)
+        # partial > supported is nonsensical.
+        with pytest.raises(ValueError):
+            FactVerifier(supported_threshold=0.4, partial_threshold=0.6)
 
     def test_multiple_sources_picks_best(self):
-        weak_source = _make_source("The sky is blue and clouds are white.")
-        strong_source = _make_source(_RICH_CHUNK)
+        """Among multiple sources, the verifier should match against the closest one."""
+        sources = [
+            _make_result("c1", "Completely irrelevant content about cooking recipes."),
+            _make_result("c2", "Machine learning algorithms learn patterns from training data."),
+        ]
         result = self.verifier.verify(
-            "Neural networks use backpropagation to train weights.", [weak_source, strong_source]
+            "Machine learning algorithms learn from training data.",
+            sources,
         )
-        # Should find a match in the strong source
-        scores = [v.best_score for v in result.verdicts]
-        assert max(scores) > 0.0
+        assert len(result.claims) >= 1
+        # Best match should be c2, not c1.
+        assert result.claims[0].best_chunk_id == "c2"
 
     def test_split_sentences_basic(self):
-        sentences = self.verifier._split_sentences(
-            "First sentence. Second sentence. Third sentence."
+        """The internal sentence splitter should handle simple punctuation."""
+        sentences = FactVerifier._split_sentences(
+            "First sentence. Second sentence. Third one!"
         )
         assert len(sentences) == 3
 
-    def test_empty_answer_returns_empty_verdicts(self):
-        sources = [_make_source(_RICH_CHUNK)]
-        result = self.verifier.verify("", sources)
-        assert len(result.verdicts) == 0
+    def test_backwards_compat_alias_exists(self):
+        """SentenceVerdict must still import as an alias of ClaimVerification."""
+        assert SentenceVerdict is ClaimVerification

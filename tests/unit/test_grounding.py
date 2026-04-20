@@ -1,98 +1,125 @@
-"""Unit tests for GroundingScorer."""
+"""Tests for the embedding-based GroundingScorer."""
 
+import numpy as np
 import pytest
-from src.rag.grounding import GroundingScorer, GroundingResult, ChunkGroundingScore
-from unittest.mock import MagicMock
+
+from src.rag.grounding import (
+    GroundingScorer,
+    GroundingResult,
+    SentenceGrounding,
+    ChunkGroundingScore,  # backwards-compat alias, import should work
+)
+from src.ingestion.storage.vector_store import SearchResult
+from src.ingestion.chunking.chunk import Chunk
 
 
-def _make_result(content: str, title: str = "doc.txt", score: float = 0.8):
-    """Helper to build a mock SearchResult."""
-    chunk = MagicMock()
-    chunk.content = content
-    chunk.source_doc_title = title
-    chunk.page_number = None
-    result = MagicMock()
-    result.chunk = chunk
-    result.score = score
-    return result
+def _make_chunk(chunk_id: str, content: str, embedding=None) -> Chunk:
+    """Build a Chunk with the minimum fields populated for scoring."""
+    chunk = Chunk(
+        chunk_id=chunk_id,
+        content=content,
+        doc_id="test_doc",
+        source_doc_title="Test Doc",
+    )
+    if embedding is not None:
+        chunk.embedding = np.asarray(embedding, dtype=np.float32)
+    return chunk
+
+
+def _make_result(chunk_id: str, content: str, score: float = 0.9) -> SearchResult:
+    return SearchResult(
+        chunk=_make_chunk(chunk_id, content),
+        score=score,
+        rank=1,
+    )
 
 
 class TestGroundingScorer:
+    """Exercises the embedding-based grounding scorer.
+
+    These tests use the real embedding model, so they're slower than
+    pure unit tests but they verify the actual scoring behaviour.
+    """
+
+    def setup_method(self):
+        self.scorer = GroundingScorer()
 
     def test_well_grounded_answer(self):
-        scorer = GroundingScorer(threshold=0.2)
-        answer = "Dependency injection allows classes to receive dependencies from outside."
-        sources = [_make_result(
-            "Dependency injection is a technique where classes receive their "
-            "dependencies from external sources rather than creating them."
-        )]
-        result = scorer.score(answer, sources)
-        assert result.is_well_grounded
-        assert result.overall_confidence > 0.0
-        assert len(result.chunk_scores) == 1
-        assert result.chunk_scores[0].is_grounded
+        sources = [
+            _make_result("c1", "Neural networks are computing systems inspired by biological brains. They consist of interconnected nodes called neurons."),
+        ]
+        answer = "Neural networks are computing systems inspired by the brain."
+        result = self.scorer.score(answer, sources)
+        # Paraphrase of the source should produce a high confidence.
+        assert result.overall_confidence >= 0.5
+        assert len(result.sentences) == 1
+        assert result.sentences[0].confidence >= 0.5
 
     def test_ungrounded_answer(self):
-        scorer = GroundingScorer(threshold=0.5)
-        answer = "Quantum entanglement enables faster than light communication."
-        sources = [_make_result(
-            "Python is a high level programming language with simple syntax."
-        )]
-        result = scorer.score(answer, sources)
-        assert not result.is_well_grounded
-        assert result.overall_confidence == 0.0
-
-    def test_matched_terms_nonempty_when_grounded(self):
-        scorer = GroundingScorer(threshold=0.1)
-        answer = "Neural networks learn through backpropagation training."
-        sources = [_make_result(
-            "Neural networks are trained using backpropagation algorithms."
-        )]
-        result = scorer.score(answer, sources)
-        assert len(result.chunk_scores[0].matched_terms) > 0
-
-    def test_scores_sorted_descending(self):
-        scorer = GroundingScorer(threshold=0.1)
-        answer = "Python supports object oriented programming with classes."
         sources = [
-            _make_result("Java uses object oriented class hierarchies."),
-            _make_result("Python classes support object oriented programming features."),
+            _make_result("c1", "The recipe for banana bread requires flour, sugar, and ripe bananas."),
         ]
-        result = scorer.score(answer, sources)
-        scores = [c.grounding_score for c in result.chunk_scores]
-        assert scores == sorted(scores, reverse=True)
+        answer = "Quantum entanglement describes correlations between distant particles."
+        result = self.scorer.score(answer, sources)
+        # Totally unrelated — should score low.
+        assert result.overall_confidence < 0.4
+
+    def test_scores_sorted_by_sentence_order(self):
+        """Sentences are reported in the order they appear in the answer."""
+        sources = [_make_result("c1", "Python is a programming language used widely in industry.")]
+        answer = "Python is a programming language. It is used in industry."
+        result = self.scorer.score(answer, sources)
+        assert len(result.sentences) == 2
+        # First reported sentence should be the first sentence of the answer
+        assert result.sentences[0].sentence.startswith("Python")
 
     def test_empty_sources_returns_no_scores(self):
-        scorer = GroundingScorer()
-        result = scorer.score("Some answer text here.", [])
-        assert result.chunk_scores == []
+        result = self.scorer.score("Some answer text.", [])
+        assert result.sentences == []
         assert result.overall_confidence == 0.0
-        assert not result.is_well_grounded
 
-    def test_answer_terms_excludes_stopwords(self):
-        scorer = GroundingScorer()
-        result = scorer.score("This is a test of the system.", [])
-        # "This", "is", "a", "of", "the" are stopwords; "test" len=4 ok, "system" ok
-        assert "this" not in result.answer_terms
-        assert "the" not in result.answer_terms
+    def test_empty_answer_returns_no_scores(self):
+        sources = [_make_result("c1", "Some chunk content.")]
+        result = self.scorer.score("", sources)
+        assert result.sentences == []
+        assert result.overall_confidence == 0.0
 
-    def test_invalid_threshold_raises(self):
+    def test_invalid_min_confidence_raises(self):
         with pytest.raises(ValueError):
-            GroundingScorer(threshold=0.0)
+            GroundingScorer(min_confidence=-0.1)
         with pytest.raises(ValueError):
-            GroundingScorer(threshold=1.0)
+            GroundingScorer(min_confidence=1.5)
 
-    def test_multiple_chunks_confidence_is_mean_of_grounded(self):
-        scorer = GroundingScorer(threshold=0.1)
-        answer = "Machine learning models require training data and validation."
+    def test_result_has_method_field(self):
+        sources = [_make_result("c1", "Relevant content about something.")]
+        result = self.scorer.score("This is an answer.", sources)
+        assert result.method == "embedding_cosine"
+
+    def test_best_chunk_id_is_populated(self):
         sources = [
-            _make_result("Machine learning models need large training datasets."),
-            _make_result("The weather today is sunny with light winds."),
+            _make_result("c1", "Completely unrelated content about cooking."),
+            _make_result("c2", "Neural networks learn patterns from data through training."),
         ]
-        result = scorer.score(answer, sources)
-        grounded = [c for c in result.chunk_scores if c.is_grounded]
-        if grounded:
-            expected = round(
-                sum(c.grounding_score for c in grounded) / len(grounded), 4
-            )
-            assert result.overall_confidence == expected
+        answer = "Neural networks learn from training data."
+        result = self.scorer.score(answer, sources)
+        # The best match should be c2, not c1.
+        assert result.sentences[0].best_chunk_id == "c2"
+
+    def test_multiple_sentences_each_scored(self):
+        sources = [_make_result("c1", "Machine learning models require training data to learn patterns.")]
+        answer = "Machine learning needs data. Training improves the model."
+        result = self.scorer.score(answer, sources)
+        assert len(result.sentences) == 2
+        for s in result.sentences:
+            assert 0.0 <= s.confidence <= 1.0
+
+    def test_backwards_compat_alias_exists(self):
+        """ChunkGroundingScore should still import as an alias of SentenceGrounding."""
+        assert ChunkGroundingScore is SentenceGrounding
+
+    def test_confidence_in_valid_range(self):
+        sources = [_make_result("c1", "Some text about a topic.")]
+        result = self.scorer.score("An answer about the topic.", sources)
+        assert 0.0 <= result.overall_confidence <= 1.0
+        for s in result.sentences:
+            assert 0.0 <= s.confidence <= 1.0

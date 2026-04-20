@@ -180,9 +180,16 @@ class RAGPipeline:
             window_size=memory_window,
             persist_path=memory_persist_path,
         )
-        self._grounder = GroundingScorer()
+        # Share the KB's embedder so the grounder / verifier don't
+        # reload the same sentence-transformer model.
+        shared_embedder = self.kb._embedder
+        self._grounder = GroundingScorer(embedding_service=shared_embedder)
         self._cache = SemanticCache(threshold=cache_threshold) if use_cache else None
-        self._verifier = FactVerifier() if verify_facts else None
+        self._verifier = (
+            FactVerifier(embedding_service=shared_embedder)
+            if verify_facts
+            else None
+        )
         self._history = QueryHistory()
 
     def query(

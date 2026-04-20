@@ -2,6 +2,10 @@
 Unit tests for HyDE and Adaptive Re-Retrieval in RAGPipeline.
 
 Uses mocks for LLM and KnowledgeBase so no API calls are made.
+The chunks returned by the mocked KB are real ``Chunk`` instances
+so that the embedding-based grounding / verification scorers have
+real text to embed; using bare MagicMocks would give scorers
+non-strings and produce undefined scores.
 """
 
 import tempfile
@@ -11,7 +15,9 @@ import pytest
 from unittest.mock import MagicMock, patch, call
 from src.rag.pipeline import RAGPipeline
 from src.rag.llm import LLMResponse
-from src.rag.grounding import GroundingResult, ChunkGroundingScore
+from src.rag.grounding import GroundingResult, ChunkGroundingScore, SentenceGrounding
+from src.ingestion.chunking.chunk import Chunk
+from src.ingestion.storage.vector_store import SearchResult
 
 
 def _make_llm_response(text: str) -> LLMResponse:
@@ -23,17 +29,25 @@ def _make_llm_response(text: str) -> LLMResponse:
     )
 
 
-def _make_search_result(content: str = "relevant content about the topic"):
-    chunk = MagicMock()
-    chunk.content = content
-    chunk.source_doc_title = "test_doc"
-    chunk.page_number = 1
-    chunk.doc_id = "doc_001"
-    result = MagicMock()
-    result.chunk = chunk
-    result.score = 0.85
-    result.rank = 1
-    return result
+def _make_search_result(
+    content: str = "Neural networks are computing systems inspired by biological neural networks. They consist of interconnected nodes.",
+    chunk_id: str = "chunk_001",
+) -> SearchResult:
+    """Build a real SearchResult wrapping a real Chunk.
+
+    Real objects (rather than MagicMocks) are required because the
+    embedding-based grounding and fact-verification scorers will try
+    to embed ``chunk.content`` — a MagicMock would be passed to
+    ``SentenceTransformer.encode`` and produce unusable results.
+    """
+    chunk = Chunk(
+        chunk_id=chunk_id,
+        content=content,
+        doc_id="doc_001",
+        source_doc_title="test_doc",
+        page_number=1,
+    )
+    return SearchResult(chunk=chunk, score=0.85, rank=1)
 
 
 def _make_pipeline(
@@ -42,14 +56,16 @@ def _make_pipeline(
     ground_answer=False,
     confidence_threshold=0.25,
     max_retries=2,
+    answer_text: str = "Test answer about the topic.",
+    chunk_content: str = "Neural networks are computing systems inspired by biological neural networks. They consist of interconnected nodes.",
 ):
     kb = MagicMock()
-    kb.search.return_value = [_make_search_result()]
+    kb.search.return_value = [_make_search_result(content=chunk_content)]
     kb.document_ids = ["doc_001"]
 
     llm = MagicMock()
     llm.is_available.return_value = True
-    llm.generate.return_value = _make_llm_response("Test answer about the topic.")
+    llm.generate.return_value = _make_llm_response(answer_text)
 
     # Use a fresh temp directory for memory and history so tests
     # always start with empty conversation state and never load
@@ -113,11 +129,33 @@ class TestHyDE:
 class TestAdaptiveRetrieval:
 
     def test_single_attempt_when_confidence_high(self):
+        """When grounding returns high confidence, no retry should happen.
+
+        We patch the grounder directly rather than relying on the
+        embedding model producing a high score for a mocked chunk —
+        the purpose of this test is to verify the pipeline's retry
+        logic, not the scorer's semantic matching.
+        """
         pipeline, kb, llm = _make_pipeline(
             adaptive_retrieval=True,
             ground_answer=True,
-            confidence_threshold=0.01,  # very low — always passes
+            confidence_threshold=0.5,
         )
+        # Force the grounder to always return high confidence so the
+        # retry branch is never taken.
+        high_conf_result = GroundingResult(
+            sentences=[
+                SentenceGrounding(
+                    sentence="Test sentence.",
+                    confidence=0.95,
+                    best_chunk_id="chunk_001",
+                )
+            ],
+            overall_confidence=0.95,
+            method="embedding_cosine",
+        )
+        pipeline._grounder.score = MagicMock(return_value=high_conf_result)
+
         response = pipeline.query("What is a neural network?")
         assert response.retrieval_attempts == 1
 
