@@ -376,5 +376,75 @@
     ],
     "timestamp": "2026-04-14T13:47:24.537124+00:00",
     "verification_score": 1.0
+  },
+  {
+    "query": "What is backpropagation?",
+    "answer_preview": "Test answer about the topic.",
+    "confidence": 0.0,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 10,
+    "output_tokens": 20,
+    "sources": [
+      "test_doc"
+    ],
+    "timestamp": "2026-04-20T11:54:13.959926+00:00",
+    "verification_score": 0.5
+  },
+  {
+    "query": "What is backpropagation?",
+    "answer_preview": "Test answer about the topic.",
+    "confidence": 0.0,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 10,
+    "output_tokens": 20,
+    "sources": [
+      "test_doc"
+    ],
+    "timestamp": "2026-04-20T11:54:15.838355+00:00",
+    "verification_score": 0.5
+  },
+  {
+    "query": "What is a neural network?",
+    "answer_preview": "Test answer about the topic.",
+    "confidence": 0.3333,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 10,
+    "output_tokens": 20,
+    "sources": [
+      "test_doc"
+    ],
+    "timestamp": "2026-04-20T11:54:18.352625+00:00",
+    "verification_score": 0.5
+  },
+  {
+    "query": "What is a neural network?",
+    "answer_preview": "Test answer about the topic.",
+    "confidence": 0.3333,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 10,
+    "output_tokens": 20,
+    "sources": [
+      "test_doc"
+    ],
+    "timestamp": "2026-04-20T11:54:20.347412+00:00",
+    "verification_score": 0.5
+  },
+  {
+    "query": "Tell me about regression",
+    "answer_preview": "Test answer about the topic.",
+    "confidence": 0.0,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 10,
+    "output_tokens": 20,
+    "sources": [
+      "test_doc"
+    ],
+    "timestamp": "2026-04-20T11:54:22.177604+00:00",
+    "verification_score": 0.5
   }
 ]

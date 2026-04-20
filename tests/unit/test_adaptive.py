@@ -4,6 +4,9 @@ Unit tests for HyDE and Adaptive Re-Retrieval in RAGPipeline.
 Uses mocks for LLM and KnowledgeBase so no API calls are made.
 """
 
+import tempfile
+from pathlib import Path
+
 import pytest
 from unittest.mock import MagicMock, patch, call
 from src.rag.pipeline import RAGPipeline
@@ -48,6 +51,11 @@ def _make_pipeline(
     llm.is_available.return_value = True
     llm.generate.return_value = _make_llm_response("Test answer about the topic.")
 
+    # Use a fresh temp directory for memory and history so tests
+    # always start with empty conversation state and never load
+    # real data from data/memory/ or data/history/.
+    tmp_dir = Path(tempfile.mkdtemp())
+
     pipeline = RAGPipeline(
         knowledge_base=kb,
         llm_provider=llm,
@@ -56,7 +64,13 @@ def _make_pipeline(
         ground_answer=ground_answer,
         confidence_threshold=confidence_threshold,
         max_retries=max_retries,
+        memory_persist_path=tmp_dir / "test_memory.json",
     )
+    # Also point query history at the temp dir so it doesn't
+    # load real history records from disk.
+    pipeline._history._records = []
+    pipeline._history.persist_path = tmp_dir / "test_history.json"
+
     return pipeline, kb, llm
 
 
@@ -114,13 +128,16 @@ class TestAdaptiveRetrieval:
             confidence_threshold=0.99,  # impossibly high — always retries
             max_retries=2,
         )
-        # Give reformulation responses + answer responses
+        # Give answer responses + reformulation responses
+        # Attempt 1: answer → low confidence → reformulate
+        # Attempt 2: answer → low confidence → reformulate
+        # Attempt 3: answer → low confidence → stop (max_retries reached)
         llm.generate.side_effect = [
-            _make_llm_response("Answer attempt 1"),   # answer
-            _make_llm_response("reformulated query"), # reformulation
-            _make_llm_response("Answer attempt 2"),   # answer
+            _make_llm_response("Answer attempt 1"),
+            _make_llm_response("reformulated query"),
+            _make_llm_response("Answer attempt 2"),
             _make_llm_response("reformulated query 2"),
-            _make_llm_response("Answer attempt 3"),   # answer
+            _make_llm_response("Answer attempt 3"),
         ]
         response = pipeline.query("What is a neural network?")
         assert response.retrieval_attempts > 1
