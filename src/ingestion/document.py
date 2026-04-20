@@ -21,7 +21,12 @@ class Document:
     metadata: DocumentMetadata
     content: str
     sections: List['DocumentSection'] = field(default_factory=list)
-    
+
+    @property
+    def doc_id(self) -> str:
+        """Convenience accessor for the document ID."""
+        return self.metadata.doc_id
+
     def __len__(self):
         return len(self.content)
 

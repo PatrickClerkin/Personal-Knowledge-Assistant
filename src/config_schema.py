@@ -10,15 +10,14 @@ Usage:
     config = AppConfig()  # Uses defaults
 """
 
+import logging
 from pathlib import Path
 from typing import Literal, Optional
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
-from ..utils.logger import get_logger
-
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class EmbeddingConfig(BaseModel):

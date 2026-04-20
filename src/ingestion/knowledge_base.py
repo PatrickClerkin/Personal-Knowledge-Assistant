@@ -59,11 +59,11 @@ class KnowledgeBase:
         # --- hash the file before doing any expensive work ---------------
         file_hash = DocumentRegistry.hash_file(file_path)
 
-        # Derive the doc_id the same way DocumentManager would so we can
-        # look it up before parsing.
-        candidate_doc_id = file_path.stem
+        # Derive a deterministic doc_id from the filename stem so it
+        # stays consistent across parses, registry, and chunk stores.
+        doc_id = file_path.stem
 
-        if self._registry.is_unchanged(candidate_doc_id, file_hash):
+        if self._registry.is_unchanged(doc_id, file_hash):
             logger.info(
                 "Skipping '%s' — file is unchanged since last ingest.",
                 file_path.name,
@@ -72,8 +72,8 @@ class KnowledgeBase:
 
         # If the document existed before but the file has changed, remove
         # the stale chunks so we don't end up with duplicates.
-        if self._registry.get(candidate_doc_id) is not None:
-            deleted = self.delete_document(candidate_doc_id)
+        if self._registry.get(doc_id) is not None:
+            deleted = self.delete_document(doc_id)
             logger.info(
                 "Re-ingesting '%s': removed %d stale chunks.",
                 file_path.name,
@@ -82,6 +82,11 @@ class KnowledgeBase:
 
         # --- normal ingest path ------------------------------------------
         document = self._doc_manager.parse_document(file_path)
+
+        # Override the parser-generated doc_id with our deterministic one
+        # so chunks, registry, and stores all share the same identifier.
+        document.metadata.doc_id = doc_id
+
         chunks = self._chunker.chunk_document(document)
         if not chunks:
             logger.warning("No chunks created for %s", file_path.name)
@@ -94,7 +99,7 @@ class KnowledgeBase:
 
         # --- register the document ---------------------------------------
         self._registry.register(
-            doc_id=document.doc_id,
+            doc_id=doc_id,
             filename=file_path.name,
             file_hash=file_hash,
             chunk_count=len(chunks),
@@ -106,6 +111,7 @@ class KnowledgeBase:
         return len(chunks)
 
     def ingest_directory(self, directory, pattern=None, show_progress=True) -> dict:
+        """Ingest all supported documents from a directory."""
         directory = Path(directory)
         files = list(directory.rglob(pattern)) if pattern else [
             f for f in directory.rglob("*")
@@ -154,6 +160,7 @@ class KnowledgeBase:
 
     @property
     def supported_formats(self) -> List[str]:
+        """Return all file extensions this knowledge base can ingest."""
         return self._doc_manager.supported_extensions
 
     def search(self, query: str, top_k: int = 5, filter_doc_id=None) -> List[SearchResult]:
@@ -249,6 +256,7 @@ class KnowledgeBase:
     # ------------------------------------------------------------------
 
     def delete_document(self, doc_id: str) -> int:
+        """Delete all chunks belonging to a document and remove its registry entry."""
         deleted = self._store.delete_document(doc_id)
         self._bm25.delete_document(doc_id)
         self._registry.remove(doc_id)
@@ -257,6 +265,7 @@ class KnowledgeBase:
         return deleted
 
     def save(self, path=None):
+        """Save the entire index (FAISS + BM25 + registry) to disk."""
         save_path = Path(path) if path else self.index_path
         if not save_path:
             raise ValueError("No save path specified")
@@ -265,6 +274,7 @@ class KnowledgeBase:
         self._registry.save(str(save_path))
 
     def load(self, path=None):
+        """Load the entire index (FAISS + BM25 + registry) from disk."""
         load_path = Path(path) if path else self.index_path
         if not load_path:
             raise ValueError("No load path specified")
@@ -273,6 +283,7 @@ class KnowledgeBase:
         self._registry.load(str(load_path))
 
     def clear(self):
+        """Remove all data from the index."""
         self._store.clear()
         self._bm25.clear()
         self._registry = DocumentRegistry()
@@ -283,13 +294,16 @@ class KnowledgeBase:
 
     @property
     def size(self) -> int:
+        """Get the number of chunks in the store."""
         return self._store.size
 
     @property
     def document_ids(self) -> List[str]:
+        """Get all unique document IDs in the store."""
         return self._store.get_document_ids()
 
     def get_document_chunks(self, doc_id: str) -> List[Chunk]:
+        """Get all chunks belonging to a specific document."""
         return [c for c in self._store.get_all_chunks() if c.doc_id == doc_id]
 
     def __len__(self):

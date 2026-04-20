@@ -155,7 +155,7 @@ class GroundingScorer:
         answer_terms: Set[str],
         chunk_terms: Set[str],
     ) -> float:
-        """Jaccard-style overlap score between two term sets.
+        """Recall-oriented overlap score between two term sets.
 
         Score = |intersection| / |answer_terms| so it reflects
         coverage of the answer, not just general similarity.
