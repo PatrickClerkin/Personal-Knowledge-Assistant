@@ -470,5 +470,85 @@
     "sources": [],
     "timestamp": "2026-04-20T13:21:57.427438+00:00",
     "verification_score": 0.0
+  },
+  {
+    "query": "tell me about the cassandra case study",
+    "answer_preview": "Based on the provided context, here's what the Cassandra case study covers:\n\n## What is Apache Cassandra?\n\nApache Cassandra is a NoSQL database designed for handling massive amounts of data across man",
+    "confidence": 0.4749,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 1693,
+    "output_tokens": 694,
+    "sources": [
+      "Case Study: Cassandra",
+      "DistributedDatabases",
+      "Machine Learning Technologies Generalisation Validation",
+      "aswdCompositionLab"
+    ],
+    "timestamp": "2026-04-20T14:20:30.297682+00:00",
+    "verification_score": 1.0
+  },
+  {
+    "query": "tell me about cassandra",
+    "answer_preview": "Based on the provided context, here's a comprehensive overview of Apache Cassandra:\n\n## What is Apache Cassandra?\n\nApache Cassandra is a NoSQL database designed for handling massive amounts of data ac",
+    "confidence": 0.5686,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 2756,
+    "output_tokens": 839,
+    "sources": [
+      "DistributedDatabases",
+      "Case Study: Cassandra"
+    ],
+    "timestamp": "2026-04-20T14:53:05.290034+00:00",
+    "verification_score": 0.85
+  },
+  {
+    "query": "tell me about mobile development",
+    "answer_preview": "Based on the provided context, here's what I can tell you about mobile development:\n\n## Mobile Applications Development Course\n\nThe context shows a **Mobile Applications Development 2** course taught ",
+    "confidence": 0.0,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 2831,
+    "output_tokens": 574,
+    "sources": [
+      "aswdCompositionLab",
+      "Lecture 5 - Interaction Design",
+      "W3 - Introduction to Angular",
+      "W2 - Miscellaneous Topics",
+      "W2 - Custom Types and Classes"
+    ],
+    "timestamp": "2026-04-20T14:54:02.125995+00:00",
+    "verification_score": 0.8333
+  },
+  {
+    "query": "tell me about cassandra",
+    "answer_preview": "Based on the provided context, here's a comprehensive overview of Apache Cassandra:\n\n## What is Apache Cassandra?\n\nApache Cassandra is a NoSQL database designed for handling massive amounts of data ac",
+    "confidence": 0.5753,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 4185,
+    "output_tokens": 901,
+    "sources": [
+      "Case Study: Cassandra",
+      "DistributedDatabases"
+    ],
+    "timestamp": "2026-04-20T15:02:13.658158+00:00",
+    "verification_score": 0.8636
+  },
+  {
+    "query": "tell me about object orientated programming",
+    "answer_preview": "Based on the provided context, here's what I can tell you about Object-Oriented Programming (OOP):\n\n## Core Goal of OOP\n\nThe principal goal of the object-oriented paradigm is to **promote the reuse of",
+    "confidence": 0.0,
+    "cache_hit": false,
+    "retrieval_attempts": 1,
+    "input_tokens": 3442,
+    "output_tokens": 711,
+    "sources": [
+      "aswdCompositionLab",
+      "W2 - Custom Types and Classes"
+    ],
+    "timestamp": "2026-04-20T15:02:54.413300+00:00",
+    "verification_score": 0.8
   }
 ]

@@ -26,14 +26,29 @@ class EmbeddingService:
 
     @property
     def model(self) -> SentenceTransformer:
-        """Lazy load the model on first use."""
+        """Lazy load the model on first use.
+
+        We pass ``device="cpu"`` explicitly at construction time.  On
+        newer PyTorch + sentence-transformers combinations, the default
+        lazy/meta-tensor loading path triggers a
+        ``NotImplementedError: Cannot copy out of meta tensor`` when the
+        model is later moved to a real device.  Forcing ``device="cpu"``
+        up front bypasses that path and loads weights eagerly.
+        """
         if self._model is None:
-            self._model = SentenceTransformer(self.model_name)
+            self._model = SentenceTransformer(self.model_name, device="cpu")
         return self._model
 
     @property
     def embedding_dimension(self) -> int:
-        """Get the dimension of embeddings produced by this model."""
+        """Get the dimension of embeddings produced by this model.
+
+        Uses the new ``get_embedding_dimension`` API on sentence-transformers
+        3.x+ and falls back to the older ``get_sentence_embedding_dimension``
+        for compatibility with 2.x.
+        """
+        if hasattr(self.model, "get_embedding_dimension"):
+            return self.model.get_embedding_dimension()
         return self.model.get_sentence_embedding_dimension()
 
     def embed_text(self, text: str) -> np.ndarray:

@@ -42,11 +42,19 @@ class CrossEncoderReranker:
 
     @property
     def model(self):
-        """Lazy-load the cross-encoder model."""
+        """Lazy-load the cross-encoder model.
+
+        We pass ``device="cpu"`` explicitly at construction time.  On
+        newer PyTorch + sentence-transformers combinations, the default
+        lazy/meta-tensor loading path triggers a
+        ``NotImplementedError: Cannot copy out of meta tensor`` when the
+        model is later moved to a real device.  Forcing ``device="cpu"``
+        up front bypasses that path and loads weights eagerly.
+        """
         if self._model is None:
             from sentence_transformers import CrossEncoder
 
-            self._model = CrossEncoder(self.model_name)
+            self._model = CrossEncoder(self.model_name, device="cpu")
             logger.info("Loaded cross-encoder: %s", self.model_name)
         return self._model
 

@@ -1,6 +1,6 @@
 """High-level API for the Personal Knowledge Assistant."""
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, TYPE_CHECKING
 from .document import Document
 from .document_manager import DocumentManager
 from .chunking.chunk import Chunk
@@ -12,6 +12,10 @@ from .storage.document_registry import DocumentRegistry, DocumentRecord
 from .storage.vector_store import SearchResult
 from .ner_extractor import NERExtractor
 from ..utils.logger import get_logger
+
+if TYPE_CHECKING:
+    from ..retrieval.reranker import CrossEncoderReranker
+    from ..retrieval.query_expansion import QueryExpander
 
 logger = get_logger(__name__)
 
@@ -27,6 +31,12 @@ class KnowledgeBase:
     Supports semantic search, hybrid BM25+FAISS retrieval, advanced
     search with reranking and query expansion, and document lifecycle
     management (ingest, update, delete, persist).
+
+    Performance notes:
+        The cross-encoder reranker (~130MB) and query expanders are
+        lazy-loaded once and cached on the instance, so repeated
+        advanced_search() calls do not re-download or re-initialise
+        heavy models.
     """
 
     def __init__(self, index_path=None, embedding_model="all-MiniLM-L6-v2",
@@ -39,9 +49,38 @@ class KnowledgeBase:
         self._bm25 = BM25Store()
         self._ner = NERExtractor()
         self._registry = DocumentRegistry()
+
+        # Lazy-loaded retrieval components.  Before caching these, every
+        # advanced_search() call would re-construct a CrossEncoderReranker
+        # and re-load the ~130MB cross-encoder model from disk, turning
+        # a sub-second query into a ~30s operation.  We now load once
+        # and reuse.
+        self._cached_reranker: Optional["CrossEncoderReranker"] = None
+        self._cached_expanders: Dict[str, "QueryExpander"] = {}
+
         if self.index_path and (Path(str(self.index_path) + ".faiss").exists()):
             self.load()
             logger.info("Loaded existing index from %s (%d chunks)", self.index_path, self.size)
+
+    # ------------------------------------------------------------------
+    # Cached retrieval components
+    # ------------------------------------------------------------------
+
+    def _get_reranker(self) -> "CrossEncoderReranker":
+        """Return the shared cross-encoder reranker, loading it on first use."""
+        if self._cached_reranker is None:
+            from ..retrieval.reranker import CrossEncoderReranker
+            logger.info("Initialising cross-encoder reranker (first use)…")
+            self._cached_reranker = CrossEncoderReranker()
+        return self._cached_reranker
+
+    def _get_query_expander(self, strategy: str) -> "QueryExpander":
+        """Return a cached query expander for the given strategy."""
+        if strategy not in self._cached_expanders:
+            from ..retrieval.query_expansion import QueryExpander
+            logger.info("Initialising query expander (strategy=%s)", strategy)
+            self._cached_expanders[strategy] = QueryExpander(strategy=strategy)
+        return self._cached_expanders[strategy]
 
     # ------------------------------------------------------------------
     # Ingestion
@@ -207,20 +246,47 @@ class KnowledgeBase:
         top_k: int = 5,
         rerank: bool = False,
         expand_query: Optional[str] = None,
-        rerank_candidates: int = 20,
         filter_doc_id=None,
         hybrid: bool = False,
         entity_boost: bool = True,
         label_filter: Optional[str] = None,
+        rerank_pool_size: Optional[int] = None,
     ) -> List[SearchResult]:
-        """Enhanced search: optional reranking, query expansion, hybrid mode, and entity boosting."""
+        """Enhanced search: optional reranking, query expansion, hybrid mode, and entity boosting.
+
+        Args:
+            query: The natural language query.
+            top_k: How many results the caller wants back.
+            rerank: If True, retrieve a larger candidate pool and use the
+                cross-encoder to reorder it before returning top_k.
+            expand_query: Optional query expansion strategy name
+                (e.g. "synonym", "multi_query", "hyde").
+            filter_doc_id: Restrict results to a single document.
+            hybrid: If True, use BM25 + FAISS with Reciprocal Rank Fusion.
+            entity_boost: If True, boost chunks whose entities overlap with
+                entities extracted from the query.
+            label_filter: Only return chunks containing at least one entity
+                with this spaCy label (e.g. "PERSON", "ORG").
+            rerank_pool_size: Override the candidate pool size when reranking.
+                Default is max(20, top_k * 4) which gives the reranker
+                enough headroom to meaningfully reorder.
+
+        Returns:
+            Up to top_k SearchResult objects, ranks reset to 1..N.
+        """
+        # Determine candidate pool size.  When reranking we fetch more
+        # candidates than the user asked for so the cross-encoder has
+        # something to work with; otherwise we fetch exactly top_k.
+        if rerank:
+            retrieve_k = rerank_pool_size or max(20, top_k * 4)
+        else:
+            retrieve_k = top_k
+
         queries = [query]
         if expand_query:
-            from ..retrieval.query_expansion import QueryExpander
-            queries = QueryExpander(strategy=expand_query).expand(query)
+            queries = self._get_query_expander(expand_query).expand(query)
             logger.info("Query expanded to %d variants", len(queries))
 
-        retrieve_k = rerank_candidates if rerank else top_k
         seen_ids, all_results = set(), []
 
         for q in queries:
@@ -252,8 +318,9 @@ class KnowledgeBase:
                 all_results.append(original)
 
         if rerank and all_results:
-            from ..retrieval.reranker import CrossEncoderReranker
-            all_results = CrossEncoderReranker(top_k=top_k).rerank(query, all_results, top_k=top_k)
+            # Reranker consumes the whole candidate pool and returns top_k,
+            # with ranks set internally to 1..top_k.
+            all_results = self._get_reranker().rerank(query, all_results, top_k=top_k)
         else:
             all_results = all_results[:top_k]
             for i, r in enumerate(all_results, 1):
