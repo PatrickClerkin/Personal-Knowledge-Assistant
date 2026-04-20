@@ -1,16 +1,24 @@
-__pycache__/ 
-*.py[cod] 
-.Python 
-venv/ 
-data/raw/* 
-data/processed/* 
-*.pdf 
-*.docx 
+__pycache__/
+*.py[cod]
+.Python
+venv/
+data/raw/*
+data/processed/*
+*.pdf
+*.docx
 !tests/fixtures/*.pdf
 !tests/fixtures/*.docx
-.vscode/ 
-.idea/ 
-.ipynb_checkpoints/ 
-.env 
-.pytest_cache/ 
-*.log 
+.vscode/
+.idea/
+.ipynb_checkpoints/
+.env
+.pytest_cache/
+*.log
+
+# Claude Code local settings (machine-specific, should not be committed)
+.claude/
+
+# Evaluation run outputs — keep one canonical baseline under version
+# control if you want ("data/eval/results_baseline.json"), but don't
+# commit every timestamped run.
+data/eval/results_*.json

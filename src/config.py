@@ -14,11 +14,17 @@ class EmbeddingConfig:
 
 @dataclass
 class ChunkingConfig:
-    """Configuration for document chunking."""
-    strategy: str = "sentence"  # "fixed", "sentence", or "semantic"
+    """Configuration for document chunking.
+
+    ``strategy`` selects one of the six strategies registered in
+    :class:`ChunkManager`: ``fixed``, ``sentence``, ``recursive``,
+    ``embedding_similarity``, ``density_clustering``, or
+    ``topic_modeling``.
+    """
+    strategy: str = "sentence"
     chunk_size: int = 512
     chunk_overlap: int = 50
-    similarity_threshold: float = 0.5  # For semantic chunking
+    similarity_threshold: float = 0.5  # Used by embedding_similarity
 
 
 @dataclass

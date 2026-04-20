@@ -11,6 +11,8 @@ numpy>=1.24.0
 # NLP
 nltk>=3.8.0
 networkx>=3.0
+spacy>=3.7.0
+# After installing, run:  python -m spacy download en_core_web_sm
 
 # Web framework
 flask>=3.0

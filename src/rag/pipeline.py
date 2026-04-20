@@ -326,6 +326,45 @@ class RAGPipeline:
             )
             current_query = reformulated
 
+        # Guard — if the very first retrieval returned nothing we never
+        # entered the generation branch, so ``best_llm_response`` is
+        # still None.  Return a graceful "no results" response rather
+        # than crashing when we try to access ``.content`` below.
+        if best_llm_response is None:
+            logger.info(
+                "No results for query: '%s' — returning empty response.",
+                question[:50],
+            )
+            empty_answer = (
+                "I couldn't find any relevant information in the "
+                "knowledge base to answer that question. Try "
+                "rephrasing, or ingest documents that cover this topic."
+            )
+            empty_llm_response = LLMResponse(
+                content=empty_answer,
+                model="",
+                usage={"input_tokens": 0, "output_tokens": 0},
+                stop_reason="no_context",
+            )
+            self.memory.add_turn(
+                question=question,
+                answer=empty_answer,
+                rewritten_query=rewritten_query,
+            )
+            return RAGResponse(
+                answer=empty_answer,
+                sources=[],
+                llm_response=empty_llm_response,
+                query=question,
+                rewritten_query=rewritten_query,
+                grounding=None,
+                confidence=0.0,
+                retrieval_attempts=attempts,
+                hyde_query=hyde_query,
+                cache_hit=False,
+                verification=None,
+            )
+
         # Fact-verify each sentence of the answer against source chunks
         verification = None
         if self._verifier and best_results:
