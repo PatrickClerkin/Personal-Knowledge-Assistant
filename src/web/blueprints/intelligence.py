@@ -100,7 +100,7 @@ def similarity_matrix():
     """Compute full pairwise similarity matrix for all documents."""
     kb = shared.get_kb()
     try:
-        ds = DocumentSimilarity(knowledge_base=kb)
+        ds = DocumentSimilarity(knowledge_base=kb, embedder=kb._embedder)
         matrix = ds.compute_matrix()
         return jsonify(matrix.to_dict())
     except Exception as e:
