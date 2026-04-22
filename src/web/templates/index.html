@@ -790,9 +790,8 @@ function buildMetaBar(data) {
   if (data.verification) { const vs = Math.round(data.verification.overall_verification_score * 100); badges += `<span class="badge badge-${vs>=70?'green':vs>=40?'amber':'red'}">✓ ${vs}% verified</span>`; }
   return `<div class="answer-meta">${badges}<div class="confidence-track"><div class="confidence-fill" style="width:${pct}%;background:${col}"></div></div><span style="font-size:0.68rem;color:var(--text-dim)">grounding</span></div>`;
 }
-
 function buildCitationChips(grounding) {
-  const chips = grounding.slice(0,4).map(g => { const cls = g.label==='strong'?'strong':g.label==='partial'?'partial':'weak'; const col = g.label==='strong'?'var(--green)':g.label==='partial'?'var(--amber)':'var(--red)'; const page = g.page?` p.${g.page}`:''; return `<div class="citation-chip ${cls}"><span style="font-size:0.72rem">📄</span><span>${esc(g.source)}${page}</span><span class="citation-score" style="color:${col}">${g.grounding_score.toFixed(3)}</span></div>`; }).join('');
+  const chips = grounding.slice(0,4).map(g => { const cls = g.label==='strong'?'strong':g.label==='partial'?'partial':'weak'; const col = g.label==='strong'?'var(--green)':g.label==='partial'?'var(--amber)':'var(--red)'; const preview = g.sentence && g.sentence.length>70 ? g.sentence.slice(0,70)+'…' : (g.sentence||''); return `<div class="citation-chip ${cls}" title="${esc(g.sentence||'')}"><span style="font-size:0.72rem">📄</span><span>${esc(preview)}</span><span class="citation-score" style="color:${col}">${(g.confidence??0).toFixed(3)}</span></div>`; }).join('');
   return `<div class="citation-row">${chips}</div>`;
 }
 

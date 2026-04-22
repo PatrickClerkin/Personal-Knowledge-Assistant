@@ -82,17 +82,22 @@ def grounding_label(score: float) -> str:
 
 
 def grounding_to_list(grounding) -> list:
-    """Serialise a GroundingResult's chunk scores to a JSON-safe list."""
-    if not grounding:
+    """Serialise a GroundingResult to a JSON-safe list of per-sentence scores.
+
+    The grounding module scores each sentence of the answer against
+    the retrieved chunks using embedding cosine similarity.  This
+    helper flattens that result into a list of dicts consumable by
+    the frontend.
+    """
+    if not grounding or not getattr(grounding, "sentences", None):
         return []
     return [
         {
-            "source": c.chunk_source,
-            "page": c.page_number,
-            "grounding_score": c.grounding_score,
-            "label": grounding_label(c.grounding_score),
-            "is_grounded": c.is_grounded,
-            "matched_terms": c.matched_terms,
+            "sentence": s.sentence,
+            "confidence": round(s.confidence, 3),
+            "label": grounding_label(s.confidence),
+            "is_grounded": s.confidence >= 0.5,
+            "best_chunk_id": s.best_chunk_id,
         }
-        for c in grounding.chunk_scores
+        for s in grounding.sentences
     ]
