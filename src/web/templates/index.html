@@ -939,9 +939,10 @@ async function summariseAll() {
     const data=await (await fetch('/api/summarise/all')).json();
     if(data.error){status.innerHTML=`<div class="status-msg status-error">${esc(data.error)}</div>`;return;}
     status.innerHTML='';
-    if(data.summaries){
-      out.innerHTML=`<div style="font-family:'Syne',sans-serif;font-weight:700;font-size:0.82rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.75rem">Corpus Summary — ${data.summaries.length} documents</div>`;
-      data.summaries.forEach(s=>{const wrap=document.createElement('div');wrap.innerHTML=`<div style="font-size:0.75rem;font-weight:600;color:var(--blue);margin:1rem 0 0.4rem">📄 ${esc(s.title||s.doc_id)}</div>`;out.appendChild(wrap);renderSummary(s,out,true);});
+    if(data.document_summaries){
+      out.innerHTML=`<div style="font-family:'Syne',sans-serif;font-weight:700;font-size:0.82rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.75rem">Corpus Summary — ${data.document_summaries.length} documents</div>`;
+      if(data.corpus_overview){const hdr=document.createElement('div');hdr.className='summary-executive';hdr.innerHTML=`<div class="summary-executive-title">Corpus Overview</div><div class="summary-executive-text">${esc(data.corpus_overview)}</div>`;out.appendChild(hdr);}
+      data.document_summaries.forEach(s=>{const wrap=document.createElement('div');wrap.innerHTML=`<div style="font-size:0.75rem;font-weight:600;color:var(--blue);margin:1rem 0 0.4rem">📄 ${esc(s.title||s.doc_id)}</div>`;out.appendChild(wrap);renderSummary(s,out,true);});
     } else { renderSummary(data,out,false); }
   } catch(e){status.innerHTML=`<div class="status-msg status-error">${esc(e.message)}</div>`;}
 }
@@ -949,9 +950,9 @@ async function summariseAll() {
 function renderSummary(data,out,compact) {
   if(data.executive_summary){const exec=document.createElement('div');exec.className='summary-executive';exec.innerHTML=`<div class="summary-executive-title">Executive Summary</div><div class="summary-executive-text">${esc(data.executive_summary)}</div>`;out.appendChild(exec);}
   if(data.key_points?.length){const grid=document.createElement('div');grid.className='key-points-grid';data.key_points.forEach(p=>{const c=document.createElement('div');c.className='key-point-card';c.textContent=p;grid.appendChild(c);});out.appendChild(grid);}
-  if(!compact&&data.sections?.length){
+  if(!compact&&data.section_summaries?.length){
     const hdr=document.createElement('div');hdr.style.cssText='font-size:0.72rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;margin:0.75rem 0 0.5rem;font-weight:600';hdr.textContent='Section Breakdown';out.appendChild(hdr);
-    data.sections.forEach((s,i)=>{const card=document.createElement('div');card.className='summary-section-card';card.innerHTML=`<div class="summary-section-header" onclick="this.parentElement.classList.toggle('open')"><div class="summary-section-pill">${i+1}</div><div style="flex:1;font-size:0.86rem;font-weight:500">${esc(s.title||s.concept||'Section '+(i+1))}</div><span style="color:var(--text-dim);font-size:0.8rem">▼</span></div><div class="summary-section-body">${esc(s.content||s.summary||'')}</div>`;out.appendChild(card);});
+    data.section_summaries.forEach((s,i)=>{const idx=s.section_index!=null?s.section_index+1:i+1;const title=`Section ${idx}${s.chunk_count?` · ${s.chunk_count} chunks`:''}`;const body=s.summary||'';const excerpt=s.excerpt?`<div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.6rem;padding:0.5rem 0.7rem;background:var(--bg2);border-left:2px solid var(--border2);border-radius:0 4px 4px 0;font-style:italic;line-height:1.55">${esc(s.excerpt.slice(0,200))}${s.excerpt.length>200?'…':''}</div>`:'';const card=document.createElement('div');card.className='summary-section-card';card.innerHTML=`<div class="summary-section-header" onclick="this.parentElement.classList.toggle('open')"><div class="summary-section-pill">${idx}</div><div style="flex:1;font-size:0.86rem;font-weight:500">${esc(title)}</div><span style="color:var(--text-dim);font-size:0.8rem">▼</span></div><div class="summary-section-body">${esc(body)}${excerpt}</div>`;out.appendChild(card);});
   }
 }
 

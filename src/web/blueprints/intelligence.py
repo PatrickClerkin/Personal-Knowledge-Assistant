@@ -119,7 +119,7 @@ def document_similarity(doc_id):
     top_k = int(request.args.get("top_k", 5))
 
     try:
-        ds = DocumentSimilarity(knowledge_base=kb)
+        ds = DocumentSimilarity(knowledge_base=kb, embedder=kb._embedder)
         results = ds.find_similar(doc_id, top_k=top_k)
         ref_chunks = kb.get_document_chunks(doc_id)
         ref_title = ref_chunks[0].source_doc_title if ref_chunks else doc_id
