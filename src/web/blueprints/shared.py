@@ -3,11 +3,17 @@ Shared application state and helpers for Flask blueprints.
 
 Centralises lazy-initialised singletons (KnowledgeBase, RAGPipeline,
 AnnotationStore) so every blueprint accesses the same instances.
+
+Configuration is layered: ``configs/config.yaml`` provides defaults,
+environment variables override individual settings for deployment
+flexibility, and dataclass defaults from :mod:`src.config` act as a
+last-resort fallback.
 """
 
 import os
 from pathlib import Path
 
+from ...config import get_config
 from ...ingestion.knowledge_base import KnowledgeBase
 from ...rag.annotations import AnnotationStore
 from ...utils.logger import get_logger
@@ -21,16 +27,43 @@ _annotations = None
 
 
 def get_kb() -> KnowledgeBase:
-    """Get or create the KnowledgeBase singleton."""
+    """Get or create the KnowledgeBase singleton.
+
+    Configuration resolution order:
+        1. Environment variable (``KB_INDEX_PATH``, ``KB_STRATEGY``, …)
+        2. ``configs/config.yaml``
+        3. Dataclass default in :mod:`src.config`
+    """
     global _kb
     if _kb is None:
-        index_path = os.environ.get("KB_INDEX_PATH", "data/index/default")
-        strategy = os.environ.get("KB_STRATEGY", "sentence")
+        cfg = get_config()
+
+        index_path = os.environ.get(
+            "KB_INDEX_PATH", str(cfg.storage.index_path)
+        )
+        strategy = os.environ.get("KB_STRATEGY", cfg.chunking.strategy)
+        chunk_size = int(
+            os.environ.get("KB_CHUNK_SIZE", cfg.chunking.chunk_size)
+        )
+        chunk_overlap = int(
+            os.environ.get("KB_CHUNK_OVERLAP", cfg.chunking.chunk_overlap)
+        )
+        embedding_model = os.environ.get(
+            "KB_EMBEDDING_MODEL", cfg.embedding.model_name
+        )
+
         _kb = KnowledgeBase(
             index_path=index_path,
+            embedding_model=embedding_model,
             chunk_strategy=strategy,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
         )
-        logger.info("KnowledgeBase initialised: %d chunks", _kb.size)
+        logger.info(
+            "KnowledgeBase initialised: %d chunks "
+            "(strategy=%s, index=%s)",
+            _kb.size, strategy, index_path,
+        )
     return _kb
 
 

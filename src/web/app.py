@@ -99,4 +99,12 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000, threaded=True)
+    import os
+    # Debug mode is on by default for local development but can be
+    # disabled for any deployment-like context by setting
+    # FLASK_DEBUG=0 (or false/no/off) in the environment.
+    debug = os.environ.get("FLASK_DEBUG", "1").lower() not in (
+        "0", "false", "no", "off", "",
+    )
+    port = int(os.environ.get("FLASK_PORT", "5000"))
+    app.run(debug=debug, port=port, threaded=True)

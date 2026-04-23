@@ -182,7 +182,7 @@ class RAGPipeline:
         )
         # Share the KB's embedder so the grounder / verifier don't
         # reload the same sentence-transformer model.
-        shared_embedder = self.kb._embedder
+        shared_embedder = self.kb.embedder
         self._grounder = GroundingScorer(embedding_service=shared_embedder)
         self._cache = SemanticCache(threshold=cache_threshold) if use_cache else None
         self._verifier = (

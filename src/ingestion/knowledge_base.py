@@ -63,6 +63,22 @@ class KnowledgeBase:
             logger.info("Loaded existing index from %s (%d chunks)", self.index_path, self.size)
 
     # ------------------------------------------------------------------
+    # Public accessors for shared components
+    # ------------------------------------------------------------------
+
+    @property
+    def embedder(self) -> EmbeddingService:
+        """The embedding service used for search and similarity.
+
+        Exposed so other components (similarity, answer evaluation)
+        can reuse the same MiniLM model instance rather than loading
+        a second copy — the second load triggers a PyTorch
+        meta-tensor bug on some versions and wastes ~90MB RAM either
+        way.
+        """
+        return self._embedder
+
+    # ------------------------------------------------------------------
     # Cached retrieval components
     # ------------------------------------------------------------------
 
@@ -110,7 +126,21 @@ class KnowledgeBase:
 
         # Derive a deterministic doc_id from the filename stem so it
         # stays consistent across parses, registry, and chunk stores.
+        # To avoid collisions between two files with the same stem
+        # but different extensions (e.g. ``cats.pdf`` vs ``cats.txt``
+        # both collapsing to ``cats``), append the extension as a
+        # suffix whenever an existing record has the bare stem but a
+        # different source filename.
         doc_id = file_path.stem
+        existing = self._registry.get(doc_id)
+        if existing is not None and existing.filename != file_path.name:
+            # Collision — disambiguate by appending the extension.
+            doc_id = f"{file_path.stem}_{file_path.suffix.lstrip('.').lower()}"
+            logger.info(
+                "doc_id collision for '%s' — disambiguating as '%s'",
+                file_path.name,
+                doc_id,
+            )
 
         if self._registry.is_unchanged(doc_id, file_hash):
             logger.info(

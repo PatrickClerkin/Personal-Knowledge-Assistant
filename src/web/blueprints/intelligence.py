@@ -100,7 +100,7 @@ def similarity_matrix():
     """Compute full pairwise similarity matrix for all documents."""
     kb = shared.get_kb()
     try:
-        ds = DocumentSimilarity(knowledge_base=kb, embedder=kb._embedder)
+        ds = DocumentSimilarity(knowledge_base=kb, embedder=kb.embedder)
         matrix = ds.compute_matrix()
         return jsonify(matrix.to_dict())
     except Exception as e:
@@ -119,7 +119,7 @@ def document_similarity(doc_id):
     top_k = int(request.args.get("top_k", 5))
 
     try:
-        ds = DocumentSimilarity(knowledge_base=kb, embedder=kb._embedder)
+        ds = DocumentSimilarity(knowledge_base=kb, embedder=kb.embedder)
         results = ds.find_similar(doc_id, top_k=top_k)
         ref_chunks = kb.get_document_chunks(doc_id)
         ref_title = ref_chunks[0].source_doc_title if ref_chunks else doc_id
@@ -273,7 +273,7 @@ def run_answer_evaluation():
     kb = shared.get_kb()
     evaluator = AnswerEvaluator(
         llm_provider=rag.llm,
-        embedding_service=kb._embedder,  # share to avoid reloading MiniLM
+        embedding_service=kb.embedder,  # share to avoid reloading MiniLM
     )
 
     results = []
