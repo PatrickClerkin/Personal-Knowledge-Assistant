@@ -4,6 +4,7 @@ A production-grade Retrieval-Augmented Generation (RAG) system for personal docu
 
 The system ingests mixed-format documents (PDF, DOCX, Markdown, TXT), builds hybrid lexical + semantic indices, and answers natural-language questions with source-cited answers grounded in retrieved context. It extends vanilla RAG with adaptive re-retrieval, semantic caching, HyDE, a spaCy-backed knowledge graph, and two independent evaluation layers.
 
+**Scale:** ~12,000 lines of Python · 512 passing tests · 12 web views.
 
 ---
 
@@ -13,6 +14,9 @@ The system ingests mixed-format documents (PDF, DOCX, Markdown, TXT), builds hyb
 
 Click the thumbnail above for a full walkthrough of the system: ingestion, hybrid search, RAG chat with grounding, the knowledge graph, and the evaluation dashboard.
 
+📄 **Dissertation:** [`docs/dissertation.pdf`](docs/dissertation.pdf) — full project report covering motivation, literature review, design, implementation, evaluation, and conclusions.
+
+<!-- Optional: add a short inline screencast (under 10 MB) by drag-and-dropping into a GitHub issue, copying the user-attachments URL, and pasting a <video src="..." controls width="800"></video> tag here. -->
 
 ---
 
@@ -155,6 +159,8 @@ storage:
 ├── .env.example
 ├── configs/
 │   └── config.yaml                  # pipeline configuration
+├── docs/
+│   └── dissertation.pdf             # full project report
 ├── data/
 │   ├── eval/                        # test sets and evaluation results
 │   ├── graph/                       # cached knowledge graph
