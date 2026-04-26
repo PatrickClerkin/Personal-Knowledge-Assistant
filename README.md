@@ -4,7 +4,15 @@ A production-grade Retrieval-Augmented Generation (RAG) system for personal docu
 
 The system ingests mixed-format documents (PDF, DOCX, Markdown, TXT), builds hybrid lexical + semantic indices, and answers natural-language questions with source-cited answers grounded in retrieved context. It extends vanilla RAG with adaptive re-retrieval, semantic caching, HyDE, a spaCy-backed knowledge graph, and two independent evaluation layers.
 
-**Scale:** ~12,000 lines of Python · 512 passing tests · 12 web views.
+
+---
+
+## Demo
+
+[![Personal Knowledge Assistant — demo](https://img.youtube.com/vi/_1bexu7VyUw/maxresdefault.jpg)](https://youtu.be/_1bexu7VyUw)
+
+Click the thumbnail above for a full walkthrough of the system: ingestion, hybrid search, RAG chat with grounding, the knowledge graph, and the evaluation dashboard.
+
 
 ---
 
@@ -51,8 +59,19 @@ Each layer depends only on abstractions below it; concrete implementations are s
 ```bash
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm
-export ANTHROPIC_API_KEY=sk-ant-...     # or copy .env.example to .env
 ```
+
+Set the Anthropic API key (required for chat, HyDE, conflict detection, study features, and answer evaluation):
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...     # Linux / macOS
+```
+
+```cmd
+set ANTHROPIC_API_KEY=sk-ant-...        REM Windows CMD
+```
+
+Or copy `.env.example` to `.env` and fill it in.
 
 **CLI**
 
@@ -86,7 +105,7 @@ print(response.answer, response.confidence)
 
 ## Features
 
-**Ingestion** — PDF / DOCX / Markdown / TXT parsers; six chunking strategies (`fixed`, `sentence`, `recursive`, `embedding_similarity`, `density_clustering`, `topic_modeling`); SHA-256 change detection with stale-chunk cleanup on re-ingest.
+**Ingestion** — PDF / DOCX / Markdown / TXT parsers; six chunking strategies (`fixed`, `sentence`, `recursive_hierarchical`, `embedding_similarity`, `density_clustering`, `topic_modeling`); SHA-256 change detection with stale-chunk cleanup on re-ingest.
 
 **Retrieval** — FAISS dense + BM25 sparse, merged via Reciprocal Rank Fusion; cross-encoder reranking (`ms-marco-MiniLM-L-6-v2`); query expansion via synonyms, multi-query paraphrasing, or HyDE; spaCy NER entity boosting with optional label filters.
 
@@ -117,12 +136,88 @@ Edit `configs/config.yaml`. All fields fall back to defaults in `src/config.py`:
 embedding:
   model_name: all-MiniLM-L6-v2
 chunking:
-  strategy: sentence          # fixed | sentence | recursive |
+  strategy: sentence          # fixed | sentence | recursive_hierarchical |
                               # embedding_similarity | density_clustering | topic_modeling
   chunk_size: 512
   chunk_overlap: 50
 storage:
   index_path: data/index/default
+```
+
+---
+
+## Project structure
+
+```
+├── README.md
+├── pyproject.toml
+├── requirements.txt
+├── .env.example
+├── configs/
+│   └── config.yaml                  # pipeline configuration
+├── data/
+│   ├── eval/                        # test sets and evaluation results
+│   ├── graph/                       # cached knowledge graph
+│   ├── history/                     # persisted query history
+│   ├── index/                       # FAISS, BM25, registry, metadata
+│   └── memory/                      # persisted conversation memory
+├── examples/
+│   ├── basic_usage.py
+│   └── advanced_usage.py
+├── scripts/
+│   ├── run_eval.py                  # RAGAS-style answer evaluation CLI
+│   └── run_eval_naive.py            # naive-RAG baseline for comparison
+├── src/
+│   ├── cli.py                       # Click-based command-line interface
+│   ├── config.py                    # dataclass config + YAML loader
+│   ├── evaluation/                  # IR metrics + RAGAS-style answer eval
+│   │   ├── answer_eval.py
+│   │   ├── evaluator.py
+│   │   └── metrics.py
+│   ├── ingestion/
+│   │   ├── knowledge_base.py        # high-level facade
+│   │   ├── document.py
+│   │   ├── document_manager.py
+│   │   ├── ner_extractor.py         # spaCy NER
+│   │   ├── similarity.py
+│   │   ├── chunking/                # 6 strategies + manager
+│   │   ├── embeddings/              # sentence-transformer service
+│   │   ├── parsers/                 # PDF / DOCX / Markdown / TXT
+│   │   └── storage/                 # FAISS, BM25, DocumentRegistry
+│   ├── knowledge_graph/
+│   │   ├── graph_builder.py         # NetworkX graph construction
+│   │   └── graph_store.py           # persistence + D3 serialisation
+│   ├── rag/
+│   │   ├── pipeline.py              # the RAG orchestrator (Mediator)
+│   │   ├── llm.py                   # LLMProvider ABC + ClaudeProvider
+│   │   ├── memory.py                # persistent conversation memory
+│   │   ├── grounding.py             # sentence-level grounding scoring
+│   │   ├── fact_verifier.py         # sentence-level fact verification
+│   │   ├── cache.py                 # semantic query cache
+│   │   ├── conflict_detector.py
+│   │   ├── annotations.py
+│   │   └── query_history.py
+│   ├── retrieval/
+│   │   ├── hybrid_search.py         # RRF fusion of BM25 + FAISS
+│   │   ├── reranker.py              # cross-encoder reranking
+│   │   ├── query_expansion.py       # synonym / multi-query / HyDE
+│   │   ├── entity_reranker.py       # spaCy NER entity boosting
+│   │   └── evaluation.py            # IR evaluator integration
+│   ├── study/
+│   │   ├── path_generator.py
+│   │   ├── quiz_generator.py
+│   │   └── summariser.py
+│   ├── utils/
+│   │   └── logger.py
+│   └── web/
+│       ├── app.py                   # Flask application factory
+│       ├── blueprints/              # 6 blueprints
+│       └── templates/               # 6 HTML templates (1 SPA + 5 standalone)
+└── tests/
+    ├── conftest.py
+    ├── fixtures/                    # sample.docx, sample.md, sample.txt
+    ├── integration/                 # full-pipeline integration tests
+    └── unit/                        # 28 unit-test modules
 ```
 
 ---
