@@ -17,7 +17,7 @@ class ChunkingConfig:
     """Configuration for document chunking.
 
     ``strategy`` selects one of the six strategies registered in
-    :class:`ChunkManager`: ``fixed``, ``sentence``, ``recursive``,
+    :class:`ChunkManager`: ``fixed``, ``sentence``, ``recursive_hierarchical``,
     ``embedding_similarity``, ``density_clustering``, or
     ``topic_modeling``.
     """
