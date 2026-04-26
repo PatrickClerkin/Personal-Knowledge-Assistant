@@ -4,7 +4,7 @@ A production-grade Retrieval-Augmented Generation (RAG) system for personal docu
 
 The system ingests mixed-format documents (PDF, DOCX, Markdown, TXT), builds hybrid lexical + semantic indices, and answers natural-language questions with source-cited answers grounded in retrieved context. It extends vanilla RAG with adaptive re-retrieval, semantic caching, HyDE, a spaCy-backed knowledge graph, and two independent evaluation layers.
 
-**Scale:** ~12,000 lines of Python · 512 passing tests · 12 web views.
+
 
 ---
 
